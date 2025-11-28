@@ -6,6 +6,17 @@
  */
 import { HTMLStencilElement, JSXBase } from "@stencil/core/internal";
 export namespace Components {
+    interface DocPage {
+        /**
+          * @default 1
+         */
+        "page": number;
+        /**
+          * @default 1.2
+         */
+        "scale": number;
+        "src": string;
+    }
     interface MyComponent {
         /**
           * The first name
@@ -22,6 +33,12 @@ export namespace Components {
     }
 }
 declare global {
+    interface HTMLDocPageElement extends Components.DocPage, HTMLStencilElement {
+    }
+    var HTMLDocPageElement: {
+        prototype: HTMLDocPageElement;
+        new (): HTMLDocPageElement;
+    };
     interface HTMLMyComponentElement extends Components.MyComponent, HTMLStencilElement {
     }
     var HTMLMyComponentElement: {
@@ -29,10 +46,22 @@ declare global {
         new (): HTMLMyComponentElement;
     };
     interface HTMLElementTagNameMap {
+        "doc-page": HTMLDocPageElement;
         "my-component": HTMLMyComponentElement;
     }
 }
 declare namespace LocalJSX {
+    interface DocPage {
+        /**
+          * @default 1
+         */
+        "page"?: number;
+        /**
+          * @default 1.2
+         */
+        "scale"?: number;
+        "src": string;
+    }
     interface MyComponent {
         /**
           * The first name
@@ -48,6 +77,7 @@ declare namespace LocalJSX {
         "middle"?: string;
     }
     interface IntrinsicElements {
+        "doc-page": DocPage;
         "my-component": MyComponent;
     }
 }
@@ -55,6 +85,7 @@ export { LocalJSX as JSX };
 declare module "@stencil/core" {
     export namespace JSX {
         interface IntrinsicElements {
+            "doc-page": LocalJSX.DocPage & JSXBase.HTMLAttributes<HTMLDocPageElement>;
             "my-component": LocalJSX.MyComponent & JSXBase.HTMLAttributes<HTMLMyComponentElement>;
         }
     }

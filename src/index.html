@@ -4,11 +4,18 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0" />
     <title>Stencil Component Starter</title>
+<link rel="stylesheet" href="/assets/pdf_viewer.css">
 
-    <script type="module" src="/build/my-pdf.esm.js"></script>
-    <script nomodule src="/build/my-pdf.js"></script>
+<script src="/assets/pdf.js"></script>
+<script src="/assets/pdf.worker.js"></script>
+<script src="/assets/pdf_viewer.js"></script>
+
+<script type="module" src="/build/my-pdf.esm.js"></script>
+<script nomodule src="/build/my-pdf.js"></script>
+
   </head>
   <body>
-    <my-component first="Stencil" middle="'Don't call me a framework'" last="JS"></my-component>
+    <doc-page src="/assets/sample2.pdf" page="1" scale="1.5"></doc-page>
+
   </body>
 </html>
