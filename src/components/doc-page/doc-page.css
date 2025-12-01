@@ -1,117 +1,33 @@
-.viewer-wrapper {
-  width: 100%;
-  height: auto;
-  overflow: auto;
-}
-
-.pdfViewer {
-  position: relative;
-}
-
-.page {
-  margin: 20px auto;
-}
-
-.textLayer {
-  pointer-events: auto !important;
-}
-.annotationLayer {
-  position: absolute;
-  inset: 0;
-  pointer-events: none; /* ⭐ Default state: DO NOT block text selection */
-  z-index: 20;
-}
-
-.annotationRect {
-  position: absolute;
-  background-color: rgba(255, 255, 0, 0.4);
-  pointer-events: none;
-  border-radius: 2px;
-}
-.viewer-container {
-  display: flex;
-  flex-direction: column;
-}
-
-.toolbar {
-  display: flex;
-  gap: 10px;
-  padding: 8px;
-  background: #f8f8f8;
-  border-bottom: 1px solid #ccc;
-  position: sticky;
-  top: 0;
-  z-index: 1000;
-}
-
-.toolbar button {
-  padding: 6px 12px;
-  border: 1px solid #aaa;
-  background: white;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.toolbar button:hover {
-  background: #e0e0e0;
-}
-
-.annotationRect {
-  background-color: rgba(255, 255, 0, 0.4);
-  position: absolute;
-  pointer-events: none;
-  border-radius: 2px;
-  z-index: 30;
-}
-
-.annotationLayer {
-  z-index: 20 !important;
-}
-
-
-.annotationLayer {
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-}
-
-.annotationRect {
-  background-color: rgba(255, 255, 0, 0.4);
-  border-radius: 2px;
-  pointer-events: none;
-  position: absolute;
-}
-.annotationLayer {
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-}
-
-.annotationRect {
-  background-color: rgba(255, 255, 0, 0.4);
-  position: absolute;
-  border-radius: 2px;
-  pointer-events: none;
-}
 .page-wrapper {
   margin: 16px auto;
   position: relative;
   width: fit-content;
 }
 
+/* pdf.js page container */
 .pdfViewerPage .page {
   position: relative;
 }
 
+/* Highlight overlay */
 .annotationLayer {
   position: absolute;
   inset: 0;
   z-index: 20;
 }
 
+/* Highlight rectangles */
 .annotationRect {
   background-color: rgba(255, 255, 0, 0.4);
-  position: absolute;
   border-radius: 2px;
   pointer-events: none;
+  position: absolute;
+}
+
+/* Comment / note icons */
+.comment-icon {
+  position: absolute;
+  font-size: 20px;
+  cursor: pointer;
+  z-index: 30;
 }

@@ -1,3 +1,4 @@
+// src/types/annotations.ts
 export type NormalizedRect = {
   x: number;
   y: number;

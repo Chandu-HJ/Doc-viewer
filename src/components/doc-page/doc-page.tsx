@@ -1,4 +1,14 @@
-import { Component, h, Prop, Element } from '@stencil/core';
+import {
+  Component,
+  h,
+  Prop,
+  Element,
+  Event,
+  EventEmitter,
+  Watch,
+} from '@stencil/core';
+import { NormalizedRect } from '../../types/annotations';
+import { PageComment, AnnotationKind } from '../../types/comments';
 
 const pdfjsLib = (window as any).pdfjsLib;
 const pdfjsViewer = (window as any).pdfjsViewer;
@@ -8,40 +18,61 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = '/assets/pdf.worker.js';
 @Component({
   tag: 'doc-page',
   styleUrl: 'doc-page.css',
-  shadow: false
+  shadow: false,
 })
 export class DocPage {
   @Element() host!: HTMLElement;
 
   @Prop() src!: string;
-  @Prop() page: number = 1;
+  @Prop() page!: number;
   @Prop() scale: number = 1.2;
 
-  private viewerContainer!: HTMLDivElement;
+  @Prop() activeTool: 'select' | 'highlight' | 'comment' | 'note' = 'select';
+  @Prop() annotations: NormalizedRect[] = [];
+  @Prop() comments: PageComment[] = [];
 
-  private activeTool: "select" | "highlight" = "select";
+  @Event() annotationCreated!: EventEmitter<{ page: number; rect: NormalizedRect }>;
+  @Event() commentAddRequested!: EventEmitter<{
+    page: number;
+    x: number;
+    y: number;
+    kind: AnnotationKind;
+  }>;
+  @Event() commentIconClicked!: EventEmitter<{ page: number; commentId: string }>;
+
+  private viewerContainer!: HTMLDivElement;
+  private pageDiv: HTMLElement | null = null;
+  private annotationLayerEl: HTMLDivElement | null = null;
+
+  // highlight drawing
   private isDrawing = false;
   private startX = 0;
   private startY = 0;
   private currentRectEl: HTMLElement | null = null;
 
-  // Store highlights per page
-  private highlights: Record<number, any[]> = {};
-
   async componentDidLoad() {
-    // Load saved annotations
-    const saved = localStorage.getItem("pdf_annotations");
-    if (saved) {
-      this.highlights = JSON.parse(saved);
-      console.log("Loaded annotations:", this.highlights);
-    }
-
     await this.loadPage();
   }
 
-  // --------------------------------------------
-  // LOAD PAGE + ANNOTATION LAYER
-  // --------------------------------------------
+  @Watch('comments')
+  commentsChanged() {
+    this.drawCommentsFromProps();
+  }
+
+  @Watch('activeTool')
+  activeToolChanged(newVal: 'select' | 'highlight' | 'comment' | 'note') {
+    if (!this.annotationLayerEl) return;
+
+    // For select mode -> allow text selection (overlay off)
+    // For highlight/comment/note -> overlay intercepts for drawing/click
+    if (newVal === 'select') {
+      this.annotationLayerEl.style.pointerEvents = 'none';
+    } else {
+      this.annotationLayerEl.style.pointerEvents = 'auto';
+    }
+  }
+
+  // ---------------- PDF PAGE LOAD ----------------
   async loadPage() {
     const loadingTask = pdfjsLib.getDocument(this.src);
     const pdf = await loadingTask.promise;
@@ -56,79 +87,88 @@ export class DocPage {
       scale: this.scale,
       defaultViewport: viewport,
       eventBus,
-      textLayerMode: 2
+      textLayerMode: 2,
     });
 
     pageView.setPdfPage(page);
     await pageView.draw();
 
-    this.addAnnotationLayer(pageView);
-    this.restoreHighlights(pageView);
+    this.pageDiv = pageView.div as HTMLElement;
+
+    this.addAnnotationLayer();
+    this.restoreAnnotations();
+    this.drawCommentsFromProps();
   }
 
-  // --------------------------------------------
-  // CREATE ANNOTATION LAYER
-  // --------------------------------------------
-  addAnnotationLayer(pageView) {
-    const pageDiv = pageView.div;
+  // -------------- ANNOTATION LAYER ----------------
+  addAnnotationLayer() {
+    if (!this.pageDiv) return;
 
-    // Remove old layer if exists (avoid duplicates)
-    const old = pageDiv.querySelector(".annotationLayer");
+    const old = this.pageDiv.querySelector('.annotationLayer');
     if (old) old.remove();
 
-    const annLayer = document.createElement("div");
-    annLayer.classList.add("annotationLayer");
+    const annLayer = document.createElement('div');
+    annLayer.classList.add('annotationLayer');
 
     Object.assign(annLayer.style, {
-      position: "absolute",
-      inset: "0",
-      zIndex: "20",
-      pointerEvents: "none"
+      position: 'absolute',
+      inset: '0',
+      zIndex: '20',
+      pointerEvents: this.activeTool === 'select' ? 'none' : 'auto',
     });
 
-    // Ensure layer is visible (fix previous 'hidden' issue)
-    annLayer.hidden = false;
-    annLayer.removeAttribute("hidden");
+    annLayer.addEventListener('mousedown', this.onMouseDown.bind(this));
+    annLayer.addEventListener('mousemove', this.onMouseMove.bind(this));
+    annLayer.addEventListener('mouseup', this.onMouseUp.bind(this));
 
-    // Bind events
-    annLayer.addEventListener("mousedown", this.onMouseDown.bind(this));
-    annLayer.addEventListener("mousemove", this.onMouseMove.bind(this));
-    annLayer.addEventListener("mouseup", this.onMouseUp.bind(this));
-
-    pageDiv.appendChild(annLayer);
+    this.pageDiv.appendChild(annLayer);
+    this.annotationLayerEl = annLayer;
   }
 
-  // --------------------------------------------
-  // DRAW HANDLERS
-  // --------------------------------------------
+  // -------------- HIGHLIGHT & COMMENT / NOTE CLICK ----------------
   onMouseDown(e: MouseEvent) {
-    if (this.activeTool !== "highlight") return;
+    if (!this.annotationLayerEl) return;
+
+    const layer = this.annotationLayerEl;
+    const rect = layer.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // Comment or Note creation
+    if (this.activeTool === 'comment' || this.activeTool === 'note') {
+      const nx = x / rect.width;
+      const ny = y / rect.height;
+      const kind: AnnotationKind = this.activeTool;
+      this.commentAddRequested.emit({ page: this.page, x: nx, y: ny, kind });
+      return;
+    }
+
+    // Highlight drawing
+    if (this.activeTool !== 'highlight') return;
 
     this.isDrawing = true;
+    this.startX = x;
+    this.startY = y;
 
-    const layer = e.currentTarget as HTMLElement;
-    const rect = layer.getBoundingClientRect();
-
-    this.startX = e.clientX - rect.left;
-    this.startY = e.clientY - rect.top;
-
-    this.currentRectEl = document.createElement("div");
-    this.currentRectEl.className = "annotationRect";
+    this.currentRectEl = document.createElement('div');
+    this.currentRectEl.className = 'annotationRect';
 
     Object.assign(this.currentRectEl.style, {
-      position: "absolute",
-      left: `${this.startX}px`,
-      top: `${this.startY}px`,
-      backgroundColor: "rgba(255,255,0,0.4)"
+      position: 'absolute',
+      left: `${x}px`,
+      top: `${y}px`,
+      backgroundColor: 'rgba(255,255,0,0.4)',
+      borderRadius: '2px',
+      pointerEvents: 'none',
     });
 
     layer.appendChild(this.currentRectEl);
   }
 
   onMouseMove(e: MouseEvent) {
-    if (!this.isDrawing || !this.currentRectEl) return;
+    if (!this.isDrawing || !this.currentRectEl || !this.annotationLayerEl) return;
 
-    const layer = e.currentTarget as HTMLElement;
+    const layer = this.annotationLayerEl;
     const rect = layer.getBoundingClientRect();
 
     const x = e.clientX - rect.left;
@@ -137,108 +177,99 @@ export class DocPage {
     const w = x - this.startX;
     const h = y - this.startY;
 
-    if (w > 0) this.currentRectEl.style.width = w + "px";
-    if (h > 0) this.currentRectEl.style.height = h + "px";
+    if (w > 0) this.currentRectEl.style.width = w + 'px';
+    if (h > 0) this.currentRectEl.style.height = h + 'px';
   }
 
   onMouseUp() {
-    if (this.activeTool !== "highlight") return;
+    if (this.activeTool !== 'highlight') return;
 
     this.isDrawing = false;
+    if (!this.currentRectEl || !this.annotationLayerEl) return;
 
-    if (this.currentRectEl) {
-      const annLayer = this.currentRectEl.parentElement as HTMLElement;
-      const layerRect = annLayer.getBoundingClientRect();
+    const layerRect = this.annotationLayerEl.getBoundingClientRect();
 
-      const w = parseFloat(this.currentRectEl.style.width);
-      const h = parseFloat(this.currentRectEl.style.height);
+    const w = parseFloat(this.currentRectEl.style.width);
+    const h = parseFloat(this.currentRectEl.style.height);
 
-      if (w > 2 && h > 2) {
-        const page = this.page;
+    if (w > 2 && h > 2) {
+      const rect: NormalizedRect = {
+        x: parseFloat(this.currentRectEl.style.left) / layerRect.width,
+        y: parseFloat(this.currentRectEl.style.top) / layerRect.height,
+        width: w / layerRect.width,
+        height: h / layerRect.height,
+      };
 
-        if (!this.highlights[page]) this.highlights[page] = [];
-
-        const normalized = {
-          x: parseFloat(this.currentRectEl.style.left) / layerRect.width,
-          y: parseFloat(this.currentRectEl.style.top) / layerRect.height,
-          width: w / layerRect.width,
-          height: h / layerRect.height
-        };
-
-        this.highlights[page].push(normalized);
-
-        localStorage.setItem("pdf_annotations", JSON.stringify(this.highlights));
-        console.log("Saved highlight:", normalized);
-      }
-
-      this.currentRectEl = null;
+      this.annotationCreated.emit({ page: this.page, rect });
     }
+
+    this.currentRectEl = null;
   }
 
-  // --------------------------------------------
-  // RESTORE HIGHLIGHTS ON REFRESH
-  // --------------------------------------------
-  restoreHighlights(pageView) {
-    const pageNum = pageView.id;
-    if (!this.highlights[pageNum]) return;
+  // -------------- RESTORE HIGHLIGHTS ----------------
+  restoreAnnotations() {
+    if (!this.annotationLayerEl) return;
 
-    const annLayer = pageView.div.querySelector(".annotationLayer") as HTMLElement;
-    if (!annLayer) return;
+    const layerRect = this.annotationLayerEl.getBoundingClientRect();
 
-    const layerRect = annLayer.getBoundingClientRect();
-
-    this.highlights[pageNum].forEach(h => {
-      const rect = document.createElement("div");
-      rect.className = "annotationRect";
+    this.annotations.forEach((h) => {
+      const rect = document.createElement('div');
+      rect.className = 'annotationRect';
 
       Object.assign(rect.style, {
-        position: "absolute",
-        left: h.x * layerRect.width + "px",
-        top: h.y * layerRect.height + "px",
-        width: h.width * layerRect.width + "px",
-        height: h.height * layerRect.height + "px",
-        backgroundColor: "rgba(255,255,0,0.4)",
-        borderRadius: "2px",
-        pointerEvents: "none"
+        position: 'absolute',
+        left: h.x * layerRect.width + 'px',
+        top: h.y * layerRect.height + 'px',
+        width: h.width * layerRect.width + 'px',
+        height: h.height * layerRect.height + 'px',
+        backgroundColor: 'rgba(255,255,0,0.4)',
+        borderRadius: '2px',
+        pointerEvents: 'none',
       });
 
-      annLayer.appendChild(rect);
+      this.annotationLayerEl!.appendChild(rect);
     });
-
-    console.log("Restored highlights for page:", pageNum);
   }
 
-  // --------------------------------------------
-  // TOOLBAR
-  // --------------------------------------------
-  setTool(tool) {
-    this.activeTool = tool;
+  // -------------- DRAW COMMENT / NOTE ICONS ----------------
+  private drawCommentsFromProps() {
+    if (!this.pageDiv) return;
 
-    const layers = document.querySelectorAll<HTMLElement>(".annotationLayer");
-    layers.forEach(layer => {
-      layer.style.pointerEvents = tool === "highlight" ? "auto" : "none";
+    // Remove old icons
+    this.pageDiv.querySelectorAll('.comment-icon').forEach((el) => el.remove());
+
+    const rect = this.pageDiv.getBoundingClientRect();
+
+    this.comments.forEach((c) => {
+      const icon = document.createElement('div');
+      icon.className = 'comment-icon';
+      icon.textContent = c.kind === 'comment' ? '💬' : '📝';
+
+      Object.assign(icon.style, {
+        position: 'absolute',
+        left: c.x * rect.width + 'px',
+        top: c.y * rect.height + 'px',
+        fontSize: '20px',
+        cursor: 'pointer',
+        zIndex: '30',
+      });
+
+      icon.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        this.commentIconClicked.emit({ page: this.page, commentId: c.id });
+      });
+
+      this.pageDiv!.appendChild(icon);
     });
-
-    console.log("Tool selected:", tool);
   }
 
-  // --------------------------------------------
-  // RENDER
-  // --------------------------------------------
   render() {
     return (
-      <div class="viewer-container">
-        <div class="toolbar">
-          <button onClick={() => this.setTool("select")}>🖱 Select</button>
-          <button onClick={() => this.setTool("highlight")}>🖍 Highlight</button>
-        </div>
-
-        <div class="viewer-wrapper">
-          <div
-            class="pdfViewer"
-            ref={el => (this.viewerContainer = el as HTMLDivElement)}
-          />
-        </div>
+      <div class="page-wrapper">
+        <div
+          class="pdfViewerPage"
+          ref={(el) => (this.viewerContainer = el as HTMLDivElement)}
+        ></div>
       </div>
     );
   }

@@ -5,12 +5,32 @@
  * It contains typing information for all components that exist in this project.
  */
 import { HTMLStencilElement, JSXBase } from "@stencil/core/internal";
+import { NormalizedRect } from "./types/annotations";
+import { AnnotationKind, PageComment } from "./types/comments";
+export { NormalizedRect } from "./types/annotations";
+export { AnnotationKind, PageComment } from "./types/comments";
 export namespace Components {
     interface DocPage {
         /**
-          * @default 1
+          * @default 'select'
          */
+        "activeTool": 'select' | 'highlight' | 'comment' | 'note';
+        /**
+          * @default []
+         */
+        "annotations": NormalizedRect[];
+        /**
+          * @default []
+         */
+        "comments": PageComment[];
         "page": number;
+        /**
+          * @default 1.2
+         */
+        "scale": number;
+        "src": string;
+    }
+    interface DocViewer {
         /**
           * @default 1.2
          */
@@ -32,12 +52,40 @@ export namespace Components {
         "middle": string;
     }
 }
+export interface DocPageCustomEvent<T> extends CustomEvent<T> {
+    detail: T;
+    target: HTMLDocPageElement;
+}
 declare global {
+    interface HTMLDocPageElementEventMap {
+        "annotationCreated": { page: number; rect: NormalizedRect };
+        "commentAddRequested": {
+    page: number;
+    x: number;
+    y: number;
+    kind: AnnotationKind;
+  };
+        "commentIconClicked": { page: number; commentId: string };
+    }
     interface HTMLDocPageElement extends Components.DocPage, HTMLStencilElement {
+        addEventListener<K extends keyof HTMLDocPageElementEventMap>(type: K, listener: (this: HTMLDocPageElement, ev: DocPageCustomEvent<HTMLDocPageElementEventMap[K]>) => any, options?: boolean | AddEventListenerOptions): void;
+        addEventListener<K extends keyof DocumentEventMap>(type: K, listener: (this: Document, ev: DocumentEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
+        addEventListener<K extends keyof HTMLElementEventMap>(type: K, listener: (this: HTMLElement, ev: HTMLElementEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
+        addEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void;
+        removeEventListener<K extends keyof HTMLDocPageElementEventMap>(type: K, listener: (this: HTMLDocPageElement, ev: DocPageCustomEvent<HTMLDocPageElementEventMap[K]>) => any, options?: boolean | EventListenerOptions): void;
+        removeEventListener<K extends keyof DocumentEventMap>(type: K, listener: (this: Document, ev: DocumentEventMap[K]) => any, options?: boolean | EventListenerOptions): void;
+        removeEventListener<K extends keyof HTMLElementEventMap>(type: K, listener: (this: HTMLElement, ev: HTMLElementEventMap[K]) => any, options?: boolean | EventListenerOptions): void;
+        removeEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void;
     }
     var HTMLDocPageElement: {
         prototype: HTMLDocPageElement;
         new (): HTMLDocPageElement;
+    };
+    interface HTMLDocViewerElement extends Components.DocViewer, HTMLStencilElement {
+    }
+    var HTMLDocViewerElement: {
+        prototype: HTMLDocViewerElement;
+        new (): HTMLDocViewerElement;
     };
     interface HTMLMyComponentElement extends Components.MyComponent, HTMLStencilElement {
     }
@@ -47,15 +95,40 @@ declare global {
     };
     interface HTMLElementTagNameMap {
         "doc-page": HTMLDocPageElement;
+        "doc-viewer": HTMLDocViewerElement;
         "my-component": HTMLMyComponentElement;
     }
 }
 declare namespace LocalJSX {
     interface DocPage {
         /**
-          * @default 1
+          * @default 'select'
          */
-        "page"?: number;
+        "activeTool"?: 'select' | 'highlight' | 'comment' | 'note';
+        /**
+          * @default []
+         */
+        "annotations"?: NormalizedRect[];
+        /**
+          * @default []
+         */
+        "comments"?: PageComment[];
+        "onAnnotationCreated"?: (event: DocPageCustomEvent<{ page: number; rect: NormalizedRect }>) => void;
+        "onCommentAddRequested"?: (event: DocPageCustomEvent<{
+    page: number;
+    x: number;
+    y: number;
+    kind: AnnotationKind;
+  }>) => void;
+        "onCommentIconClicked"?: (event: DocPageCustomEvent<{ page: number; commentId: string }>) => void;
+        "page": number;
+        /**
+          * @default 1.2
+         */
+        "scale"?: number;
+        "src": string;
+    }
+    interface DocViewer {
         /**
           * @default 1.2
          */
@@ -78,6 +151,7 @@ declare namespace LocalJSX {
     }
     interface IntrinsicElements {
         "doc-page": DocPage;
+        "doc-viewer": DocViewer;
         "my-component": MyComponent;
     }
 }
@@ -86,6 +160,7 @@ declare module "@stencil/core" {
     export namespace JSX {
         interface IntrinsicElements {
             "doc-page": LocalJSX.DocPage & JSXBase.HTMLAttributes<HTMLDocPageElement>;
+            "doc-viewer": LocalJSX.DocViewer & JSXBase.HTMLAttributes<HTMLDocViewerElement>;
             "my-component": LocalJSX.MyComponent & JSXBase.HTMLAttributes<HTMLMyComponentElement>;
         }
     }
