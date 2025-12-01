@@ -1,3 +1,4 @@
+// src/components/doc-page/doc-page.tsx
 import {
   Component,
   h,
@@ -44,7 +45,7 @@ export class DocPage {
   private pageDiv: HTMLElement | null = null;
   private annotationLayerEl: HTMLDivElement | null = null;
 
-  // highlight drawing
+  // highlight drawing state
   private isDrawing = false;
   private startX = 0;
   private startY = 0;
@@ -54,17 +55,23 @@ export class DocPage {
     await this.loadPage();
   }
 
+  // 🔁 When comments change in parent, redraw icons
   @Watch('comments')
   commentsChanged() {
     this.drawCommentsFromProps();
   }
 
+  // 🔁 When annotations change (undo/redo/import), redraw highlights
+  @Watch('annotations')
+  annotationsChanged() {
+    this.redrawHighlightsFromProps();
+  }
+
+  // 🔁 When tool changes, update pointer-events so select mode can select text
   @Watch('activeTool')
   activeToolChanged(newVal: 'select' | 'highlight' | 'comment' | 'note') {
     if (!this.annotationLayerEl) return;
 
-    // For select mode -> allow text selection (overlay off)
-    // For highlight/comment/note -> overlay intercepts for drawing/click
     if (newVal === 'select') {
       this.annotationLayerEl.style.pointerEvents = 'none';
     } else {
@@ -96,7 +103,7 @@ export class DocPage {
     this.pageDiv = pageView.div as HTMLElement;
 
     this.addAnnotationLayer();
-    this.restoreAnnotations();
+    this.redrawHighlightsFromProps();
     this.drawCommentsFromProps();
   }
 
@@ -125,7 +132,7 @@ export class DocPage {
     this.annotationLayerEl = annLayer;
   }
 
-  // -------------- HIGHLIGHT & COMMENT / NOTE CLICK ----------------
+  // -------------- HIGHLIGHT + COMMENT / NOTE CLICK ----------------
   onMouseDown(e: MouseEvent) {
     if (!this.annotationLayerEl) return;
 
@@ -134,7 +141,7 @@ export class DocPage {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // Comment or Note creation
+    // Comment or Note creation (sticky-like)
     if (this.activeTool === 'comment' || this.activeTool === 'note') {
       const nx = x / rect.width;
       const ny = y / rect.height;
@@ -200,15 +207,21 @@ export class DocPage {
         height: h / layerRect.height,
       };
 
+      // emit highlight to parent
       this.annotationCreated.emit({ page: this.page, rect });
     }
 
     this.currentRectEl = null;
   }
 
-  // -------------- RESTORE HIGHLIGHTS ----------------
-  restoreAnnotations() {
+  // -------------- HIGHLIGHTS FROM PROPS (for undo/redo/import) ----------------
+  private redrawHighlightsFromProps() {
     if (!this.annotationLayerEl) return;
+
+    // clear old rects
+    this.annotationLayerEl
+      .querySelectorAll('.annotationRect')
+      .forEach((el) => el.remove());
 
     const layerRect = this.annotationLayerEl.getBoundingClientRect();
 
@@ -243,6 +256,7 @@ export class DocPage {
     this.comments.forEach((c) => {
       const icon = document.createElement('div');
       icon.className = 'comment-icon';
+      // 💬 for comment, 🟦 sticky-like note
       icon.textContent = c.kind === 'comment' ? '💬' : '📝';
 
       Object.assign(icon.style, {

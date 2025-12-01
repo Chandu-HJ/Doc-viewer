@@ -1,0 +1,334 @@
+<footer class="footer">
+        <div class="footer-section1">
+            <div class="online-shopping">
+                <p>online shopping</p>
+                <a href="#">Men</a>
+                <a href="#">Women</a>
+                <a href="#">Kids</a>
+                <a href="#">Home</a>
+                <a href="#">Beauty</a>
+                <a href="#">GenZ</a>
+                <a href="#">Gift Cards</a>
+                <a href="#">Myntra Insider</a>
+
+                <p>Useful links</p>
+                <a href="#">Blog</a>
+                <a href="#">Careers</a>
+                <a href="#">Site Map</a>
+                <a href="#">Corporate Information</a>
+                <a href="#">Whitehat</a>
+                <a href="#">Cleartrip</a>
+                <a href="#">Myntra Global</a>
+
+            </div>
+
+            <div class="customer-polices">
+                <p>customer policies</p>
+                
+                <a href="#">Contact Us</a>
+                <a href="#">T&C</a>
+                <a href="#">Terms Of Use</a>
+                <a href="#">Track Orders</a>
+                <a href="#">Shipping</a>
+                <a href="#">Cancellation</a>
+                <a href="#">Returns</a>
+                <a href="#">Privacy policy</a>
+                <a href="#">Grievance Redressal</a>
+                <a href="#">FSSAI Food Safety</a>
+                <a href="#">Connect app</a>
+                
+            </div>
+            <div class="exp-myntra">
+                <p>Experience myntra app on mobile</p>
+                <div class="app-stores">
+                    <img src="https://constant.myntassets.com/web/assets/img/80cc455a-92d2-4b5c-a038-7da0d92af33f1539674178924-google_play.png" alt="Google play">
+                    <img src="https://constant.myntassets.com/web/assets/img/bc5e11ad-0250-420a-ac71-115a57ca35d51539674178941-apple_store.png" alt="Apple-dtore">
+
+                </div>
+
+                <p>Keep in touch</p>
+                <div class="keep-touch">
+                    <img src="https://constant.myntassets.com/web/assets/img/d2bec182-bef5-4fab-ade0-034d21ec82e31574604275433-fb.png" alt="facebook">
+                    <img src="https://constant.myntassets.com/web/assets/img/f10bc513-c5a4-490c-9a9c-eb7a3cc8252b1574604275383-twitter.png" alt="twitter">
+                    <img src="https://constant.myntassets.com/web/assets/img/a7e3c86e-566a-44a6-a733-179389dd87111574604275355-yt.png" alt="yt">
+                    <img src="https://constant.myntassets.com/web/assets/img/b4fcca19-5fc1-4199-93ca-4cae3210ef7f1574604275408-insta.png" alt="insta">
+
+                </div>
+            </div>
+            <div class="original">
+                <div class="og1">
+                    <div class="img">
+                        <img src="https://constant.myntassets.com/web/assets/img/6c3306ca-1efa-4a27-8769-3b69d16948741574602902452-original.png" alt="100%">
+                    </div>
+                    <div class="text">
+                        <p><strong>100% ORIGINAL</strong> guarantee for all products at myntra.com</p>
+                    </div>
+                </div>
+                <div class="og2">
+                    <div class="img">
+                        <img src="https://assets.myntassets.com/assets/images/retaillabs/2023/5/22/becb1b16-86cc-4e78-bdc7-7801c17947831684737106127-Return-Window-image.png" alt="reverse">
+                    </div>
+                    <div class="text">
+                        <p><strong>Return within 14days</strong> of receiving your order</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer-section2">
+            <div class="popular-searches-h">
+                <p>popular searches</p>
+                <hr>
+            </div>
+            <div class="popular-searches-content">
+                <p>
+                    Makeup | Dresses For Girls | T-Shirts | Sandals | Headphones | Babydolls | Blazers For Men | Handbags | Ladies Watches | Bags | Sport Shoes | Reebok Shoes | Puma Shoes | Boxers | Wallets | Tops | Earrings | Fastrack Watches | Kurtis | Nike | Smart Watches | Titan Watches | Designer Blouse | Gowns | Rings | Cricket Shoes | Forever 21 | Eye Makeup | Photo Frames | Punjabi Suits | Bikini | Myntra Fashion Show | Lipstick | Saree | Watches | Dresses | Lehenga | Nike Shoes | Goggles | Bras | Suit | Chinos | Shoes | Adidas Shoes | Woodland Shoes | Jewellery | Designers Sarees
+                </p>
+            </div>
+
+        </div>
+
+        <div class="footer-section3">
+            <hr>
+            <p>Registered office Address</p>
+            <div class="content">
+                <div class="address-1">
+                    <pre>Buildings Alyssa,
+Begonia and Clover situated in Embassy Tech Village,
+Outer Ring Road,
+Devarabeesanahalli Village,
+Varthur Hobli,
+Bengaluru – 560103, India</pre>
+                </div>
+                <div class="address-2">
+                    <pre>CIN: U72300KA2007PTC041799
+Telephone: <span>+91-80-61561999</span></pre>
+                </div>
+            </div>
+            
+            <hr>
+            
+            <br>
+        </div>
+    </footer>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* footer section */
+.footer{
+  margin-top: 60px;
+  margin-left: 7%;
+  margin-right: 7%;
+  background-color: #fafbfc;
+  
+
+}
+.footer-section1{
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
+}
+
+.footer-section1 p,
+.footer-section3 p{
+  text-decoration: none;
+  text-transform: uppercase;
+  color: #282c37;
+  font-weight: 700;
+  font-size: 11px;
+  padding-bottom: 18px;
+  padding-top: 18px;
+}
+
+.footer-section1 a
+{
+  
+    color: #696b79;
+    display: block;
+    font-size: 14px;
+    text-decoration: none;
+    padding-bottom: 5px;
+    cursor: pointer;
+    line-height: normal;
+}
+
+.online-shopping{
+  width: 15%;
+}
+
+.customer-polices{
+  width: 15%;
+}
+
+.exp-myntra{
+  width: 30%;
+}
+
+.app-stores img{
+  margin-right: 10px;
+  height: 42px;
+  object-fit: contain;
+  cursor: pointer;
+}
+
+.keep-touch img{
+  height: 20px;
+  width: 22px;
+  padding: 3px;
+  cursor: pointer;
+}
+
+
+.original .og1, .og2{
+  display: flex;
+
+}
+
+.og1 img, .og2 img{
+  padding-top: 18px;
+  display: block;
+  height: 40px;
+  width: 48px;
+  padding-right: 15px;
+  cursor: pointer;
+}
+
+.og1 .text,
+.og2 .text{
+  padding-top: 0;
+  margin-top: 0;
+  width: 52%;
+}
+
+.original p{
+  color: #696b79;
+  text-transform: none;
+  font-weight: normal;
+  font-size: 1em;
+}
+
+.original p strong{
+  color: #282c3f;
+}
+
+
+/* footer section 2  */
+
+.footer-section2 {
+  margin-top: 30px;
+  
+}
+
+/* .popular-searches-h {
+  position: absolute;
+  margin-top: -15px;
+  background: #fafbfc;
+  padding-right: 10px;
+  color: #282c3f;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.popular-searches-h hr{
+  color: #696b79;
+} */
+
+.popular-searches-h {
+  display: flex;
+  align-items: center;
+  gap: 10px; /* small gap between text and line */
+  background: #fafbfc;
+  color: #282c3f;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.popular-searches-h p {
+  margin: 0; /* remove default p spacing */
+  white-space: nowrap;
+}
+
+.popular-searches-h hr {
+  flex-grow: 1; /* line takes remaining space */
+  border: none;
+  border-top: 1px solid #e9eaf0;
+  color: #eaeaf0;
+  height: 0;
+}
+
+
+.popular-searches-content p{
+  color: #696b79;
+  font-size: 14px;
+  padding-bottom: 5px;
+  cursor: pointer;
+  line-height: 30px;
+  text-align: justify;
+}
+
+/* footer section 3 */
+
+.footer-section3 {
+
+}
+
+.footer-section3 hr{
+  flex-grow: 1; /* line takes remaining space */
+  border: none;
+  border-top: 1px solid #e9eaf0;
+  color: #eaeaf0;
+  height: 0;
+}
+
+.footer-section3 p{
+  text-transform: capitalize;
+  columns: #282c3f;
+  font-size: 15px;
+}
+
+.footer-section3 .content {
+  display: flex;
+  padding-bottom: 50px;
+}
+
+.footer-section3 .content .address-1 {
+  width: 70%;
+  padding-right: 30px;
+}
+
+.footer-section3 .content .address-2{
+  display: flex;
+  flex-direction: column-reverse;
+}
+
+.footer-section3 pre{
+  color: #696b79;
+  font-family: inherit;
+}
+
+.footer-section3 span{
+  color: #526cd0;
+  font-weight: 700;
+  cursor: pointer;
+}

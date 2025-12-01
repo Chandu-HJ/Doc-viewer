@@ -1,21 +1,29 @@
+// src/utils/history.ts
+
 export class HistoryManager<T> {
-  private undoStack: T[] = [];
-  private redoStack: T[] = [];
+  private past: T[] = [];
+  private future: T[] = [];
+
+  private clone(state: T): T {
+    return JSON.parse(JSON.stringify(state));
+  }
 
   pushState(state: T) {
-    this.undoStack.push(JSON.parse(JSON.stringify(state)));
-    this.redoStack = []; // clear redo on new action
+    this.past.push(this.clone(state));
+    this.future = []; // clear redo stack
   }
 
   undo(current: T): T | null {
-    if (this.undoStack.length === 0) return null;
-    this.redoStack.push(JSON.parse(JSON.stringify(current)));
-    return JSON.parse(JSON.stringify(this.undoStack.pop()));
+    if (this.past.length === 0) return null;
+    const prev = this.past.pop()!;
+    this.future.push(this.clone(current));
+    return prev;
   }
 
   redo(current: T): T | null {
-    if (this.redoStack.length === 0) return null;
-    this.undoStack.push(JSON.parse(JSON.stringify(current)));
-    return JSON.parse(JSON.stringify(this.redoStack.pop()));
+    if (this.future.length === 0) return null;
+    const next = this.future.pop()!;
+    this.past.push(this.clone(current));
+    return next;
   }
 }
