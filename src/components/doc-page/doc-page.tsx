@@ -28,6 +28,10 @@ export class DocPage {
   @Prop() page!: number;
   @Prop() scale: number = 1.2;
 
+  // pdf / image / text – given by <doc-viewer>
+  @Prop() fileType: 'pdf' | 'image' | 'text' = 'pdf';
+
+  // tools + data from parent
   @Prop() activeTool: 'select' | 'highlight' | 'comment' | 'note' = 'select';
   @Prop() annotations: NormalizedRect[] = [];
   @Prop() comments: PageComment[] = [];
@@ -42,45 +46,49 @@ export class DocPage {
   @Event() commentIconClicked!: EventEmitter<{ page: number; commentId: string }>;
 
   private viewerContainer!: HTMLDivElement;
-  private pageDiv: HTMLElement | null = null;
-  private annotationLayerEl: HTMLDivElement | null = null;
+  private annotationLayerEl: HTMLElement | null = null;
+  private textContentEl: HTMLElement | null = null;
 
-  // highlight drawing state
+  // drawing state for rectangle highlight (pdf + image)
   private isDrawing = false;
   private startX = 0;
   private startY = 0;
   private currentRectEl: HTMLElement | null = null;
 
   async componentDidLoad() {
-    await this.loadPage();
+    if (this.fileType === 'image') {
+      await this.renderImagePage();
+    } else if (this.fileType === 'text') {
+      await this.renderTextPage();
+    } else {
+      await this.renderPdfPage();
+    }
   }
 
-  // 🔁 When comments change in parent, redraw icons
-  @Watch('comments')
-  commentsChanged() {
-    this.drawCommentsFromProps();
-  }
+  // ===== WATCHERS =====
 
-  // 🔁 When annotations change (undo/redo/import), redraw highlights
+  // when annotations change (undo/redo/import), redraw rectangles
   @Watch('annotations')
   annotationsChanged() {
     this.redrawHighlightsFromProps();
   }
 
-  // 🔁 When tool changes, update pointer-events so select mode can select text
-  @Watch('activeTool')
-  activeToolChanged(newVal: 'select' | 'highlight' | 'comment' | 'note') {
-    if (!this.annotationLayerEl) return;
-
-    if (newVal === 'select') {
-      this.annotationLayerEl.style.pointerEvents = 'none';
-    } else {
-      this.annotationLayerEl.style.pointerEvents = 'auto';
-    }
+  // when comments change, redraw icons
+  @Watch('comments')
+  commentsChanged() {
+    this.redrawCommentsFromProps();
   }
 
-  // ---------------- PDF PAGE LOAD ----------------
-  async loadPage() {
+  // when tool changes, update pointerEvents so select / text-highlight work nicely
+  @Watch('activeTool')
+  activeToolChanged() {
+    this.updateAnnotationLayerPointer();
+  }
+
+  // ========================
+  // PDF
+  // ========================
+  private async renderPdfPage() {
     const loadingTask = pdfjsLib.getDocument(this.src);
     const pdf = await loadingTask.promise;
 
@@ -100,180 +108,275 @@ export class DocPage {
     pageView.setPdfPage(page);
     await pageView.draw();
 
-    this.pageDiv = pageView.div as HTMLElement;
-
-    this.addAnnotationLayer();
+    const pageDiv = pageView.div as HTMLElement;
+    this.setupAnnotationLayer(pageDiv);
     this.redrawHighlightsFromProps();
-    this.drawCommentsFromProps();
+    this.redrawCommentsFromProps();
   }
 
-  // -------------- ANNOTATION LAYER ----------------
-  addAnnotationLayer() {
-    if (!this.pageDiv) return;
+  // ========================
+  // IMAGE
+  // ========================
+  private async renderImagePage() {
+    const pageDiv = document.createElement('div');
+    pageDiv.classList.add('page');
+    pageDiv.style.position = 'relative';
+    this.viewerContainer.appendChild(pageDiv);
 
-    const old = this.pageDiv.querySelector('.annotationLayer');
+    const img = document.createElement('img');
+    img.src = this.src;
+    img.style.display = 'block';
+    img.style.maxWidth = `${800 * this.scale}px`;
+
+    pageDiv.appendChild(img);
+
+    img.onload = () => {
+      this.setupAnnotationLayer(pageDiv);
+      this.redrawHighlightsFromProps();
+      this.redrawCommentsFromProps();
+    };
+  }
+
+  // ========================
+  // TEXT
+  // ========================
+  private async renderTextPage() {
+    const pageDiv = document.createElement('div');
+    pageDiv.classList.add('page');
+    pageDiv.style.position = 'relative';
+    this.viewerContainer.appendChild(pageDiv);
+
+    const textEl = document.createElement('pre');
+    textEl.classList.add('text-content');
+    textEl.style.fontSize = `${16 * this.scale}px`;
+    textEl.style.whiteSpace = 'pre-wrap';
+
+    const text = await fetch(this.src).then((r) => r.text());
+    textEl.textContent = text;
+    pageDiv.appendChild(textEl);
+    this.textContentEl = textEl;
+
+    this.setupAnnotationLayer(pageDiv);
+    this.redrawHighlightsFromProps();
+    this.redrawCommentsFromProps();
+
+    // text highlight (pdf + text): we use selection rect for text files
+    textEl.addEventListener('mouseup', (e) => this.handleTextMouseUp(e));
+  }
+
+  // ========================
+  // ANNOTATION LAYER
+  // ========================
+  private setupAnnotationLayer(pageDiv: HTMLElement) {
+    const old = pageDiv.querySelector('.annotationLayer');
     if (old) old.remove();
 
-    const annLayer = document.createElement('div');
-    annLayer.classList.add('annotationLayer');
+    const layer = document.createElement('div');
+    layer.classList.add('annotationLayer');
 
-    Object.assign(annLayer.style, {
+    Object.assign(layer.style, {
       position: 'absolute',
       inset: '0',
       zIndex: '20',
-      pointerEvents: this.activeTool === 'select' ? 'none' : 'auto',
     });
 
-    annLayer.addEventListener('mousedown', this.onMouseDown.bind(this));
-    annLayer.addEventListener('mousemove', this.onMouseMove.bind(this));
-    annLayer.addEventListener('mouseup', this.onMouseUp.bind(this));
+    this.annotationLayerEl = layer;
+    this.updateAnnotationLayerPointer(layer);
 
-    this.pageDiv.appendChild(annLayer);
-    this.annotationLayerEl = annLayer;
+    layer.addEventListener('mousedown', (e) => this.onMouseDown(e));
+    layer.addEventListener('mousemove', (e) => this.onMouseMove(e));
+    layer.addEventListener('mouseup', () => this.onMouseUp());
+
+    pageDiv.appendChild(layer);
   }
 
-  // -------------- HIGHLIGHT + COMMENT / NOTE CLICK ----------------
-  onMouseDown(e: MouseEvent) {
+  // pointer-events logic:
+  // - TEXT + HIGHLIGHT → let user select text ⇒ overlay pointerEvents = none
+  // - others → overlay pointerEvents = auto (so we can draw boxes / click icons)
+  private updateAnnotationLayerPointer(layer?: HTMLElement) {
+    const target = layer || this.annotationLayerEl;
+    if (!target) return;
+
+    if (this.fileType === 'text' && this.activeTool === 'highlight') {
+      target.style.pointerEvents = 'none';
+    } else {
+      target.style.pointerEvents = 'auto';
+    }
+  }
+
+  // ========================
+  // MOUSE EVENTS (all types)
+  // ========================
+  private onMouseDown(e: MouseEvent) {
     if (!this.annotationLayerEl) return;
 
-    const layer = this.annotationLayerEl;
-    const rect = layer.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    // Comment or Note creation (sticky-like)
+    // COMMENT / NOTE placement – all file types
     if (this.activeTool === 'comment' || this.activeTool === 'note') {
-      const nx = x / rect.width;
-      const ny = y / rect.height;
-      const kind: AnnotationKind = this.activeTool;
-      this.commentAddRequested.emit({ page: this.page, x: nx, y: ny, kind });
+      const rect = this.annotationLayerEl.getBoundingClientRect();
+      const xNorm = (e.clientX - rect.left) / rect.width;
+      const yNorm = (e.clientY - rect.top) / rect.height;
+
+      this.commentAddRequested.emit({
+        page: this.page,
+        x: xNorm,
+        y: yNorm,
+        kind: this.activeTool === 'comment' ? 'comment' : 'note',
+      });
       return;
     }
 
-    // Highlight drawing
-    if (this.activeTool !== 'highlight') return;
+    // RECTANGULAR HIGHLIGHT: PDF + IMAGE
+    // For TEXT we use selection, so we skip here
+    if (this.activeTool !== 'highlight' || this.fileType === 'text') return;
 
     this.isDrawing = true;
-    this.startX = x;
-    this.startY = y;
+    const rect = this.annotationLayerEl.getBoundingClientRect();
+    this.startX = e.clientX - rect.left;
+    this.startY = e.clientY - rect.top;
 
     this.currentRectEl = document.createElement('div');
     this.currentRectEl.className = 'annotationRect';
+    this.currentRectEl.style.left = `${this.startX}px`;
+    this.currentRectEl.style.top = `${this.startY}px`;
 
-    Object.assign(this.currentRectEl.style, {
-      position: 'absolute',
-      left: `${x}px`,
-      top: `${y}px`,
-      backgroundColor: 'rgba(255,255,0,0.4)',
-      borderRadius: '2px',
-      pointerEvents: 'none',
-    });
-
-    layer.appendChild(this.currentRectEl);
+    this.annotationLayerEl.appendChild(this.currentRectEl);
   }
 
-  onMouseMove(e: MouseEvent) {
+  private onMouseMove(e: MouseEvent) {
     if (!this.isDrawing || !this.currentRectEl || !this.annotationLayerEl) return;
 
-    const layer = this.annotationLayerEl;
-    const rect = layer.getBoundingClientRect();
-
+    const rect = this.annotationLayerEl.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    const w = x - this.startX;
-    const h = y - this.startY;
-
-    if (w > 0) this.currentRectEl.style.width = w + 'px';
-    if (h > 0) this.currentRectEl.style.height = h + 'px';
+    this.currentRectEl.style.width = `${x - this.startX}px`;
+    this.currentRectEl.style.height = `${y - this.startY}px`;
   }
 
-  onMouseUp() {
-    if (this.activeTool !== 'highlight') return;
+  private onMouseUp() {
+    // TEXT → handled by selection handler
+    if (this.fileType === 'text') return;
+    if (this.activeTool !== 'highlight' || !this.annotationLayerEl) return;
 
     this.isDrawing = false;
-    if (!this.currentRectEl || !this.annotationLayerEl) return;
+    if (!this.currentRectEl) return;
 
-    const layerRect = this.annotationLayerEl.getBoundingClientRect();
+    const rect = this.annotationLayerEl.getBoundingClientRect();
+    const width = parseFloat(this.currentRectEl.style.width);
+    const height = parseFloat(this.currentRectEl.style.height);
 
-    const w = parseFloat(this.currentRectEl.style.width);
-    const h = parseFloat(this.currentRectEl.style.height);
-
-    if (w > 2 && h > 2) {
-      const rect: NormalizedRect = {
-        x: parseFloat(this.currentRectEl.style.left) / layerRect.width,
-        y: parseFloat(this.currentRectEl.style.top) / layerRect.height,
-        width: w / layerRect.width,
-        height: h / layerRect.height,
+    if (width > 2 && height > 2) {
+      const normalized: NormalizedRect = {
+        x: parseFloat(this.currentRectEl.style.left) / rect.width,
+        y: parseFloat(this.currentRectEl.style.top) / rect.height,
+        width: width / rect.width,
+        height: height / rect.height,
       };
 
-      // emit highlight to parent
-      this.annotationCreated.emit({ page: this.page, rect });
+      this.annotationCreated.emit({ page: this.page, rect: normalized });
     }
 
+    this.currentRectEl.remove();
     this.currentRectEl = null;
   }
 
-  // -------------- HIGHLIGHTS FROM PROPS (for undo/redo/import) ----------------
+  // ========================
+  // TEXT SELECTION HIGHLIGHT (TEXT files only)
+  // ========================
+  private handleTextMouseUp(e: MouseEvent) {
+    if (this.fileType !== 'text') return;
+    if (this.activeTool !== 'highlight') return;
+    if (!this.annotationLayerEl) return;
+
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) return;
+
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    const layerRect = this.annotationLayerEl.getBoundingClientRect();
+
+    if (rect.width === 0 || rect.height === 0) return;
+
+    const x = rect.left - layerRect.left;
+    const y = rect.top - layerRect.top;
+    const width = rect.width;
+    const height = rect.height;
+
+    const normalized: NormalizedRect = {
+      x: x / layerRect.width,
+      y: y / layerRect.height,
+      width: width / layerRect.width,
+      height: height / layerRect.height,
+    };
+
+    // draw local rect
+    const highlightEl = document.createElement('div');
+    highlightEl.className = 'annotationRect';
+    highlightEl.style.left = `${x}px`;
+    highlightEl.style.top = `${y}px`;
+    highlightEl.style.width = `${width}px`;
+    highlightEl.style.height = `${height}px`;
+    this.annotationLayerEl.appendChild(highlightEl);
+
+    // notify parent (for undo/redo + persistence)
+    this.annotationCreated.emit({ page: this.page, rect: normalized });
+
+    // optional: clear selection
+    selection.removeAllRanges();
+  }
+
+  // ========================
+  // REDRAW FROM PROPS (undo/redo/import)
+  // ========================
   private redrawHighlightsFromProps() {
     if (!this.annotationLayerEl) return;
 
-    // clear old rects
+    // clear all existing highlight rectangles
     this.annotationLayerEl
       .querySelectorAll('.annotationRect')
       .forEach((el) => el.remove());
 
     const layerRect = this.annotationLayerEl.getBoundingClientRect();
+    if (!layerRect.width || !layerRect.height) return;
 
-    this.annotations.forEach((h) => {
-      const rect = document.createElement('div');
-      rect.className = 'annotationRect';
-
-      Object.assign(rect.style, {
-        position: 'absolute',
-        left: h.x * layerRect.width + 'px',
-        top: h.y * layerRect.height + 'px',
-        width: h.width * layerRect.width + 'px',
-        height: h.height * layerRect.height + 'px',
-        backgroundColor: 'rgba(255,255,0,0.4)',
-        borderRadius: '2px',
-        pointerEvents: 'none',
-      });
-
-      this.annotationLayerEl!.appendChild(rect);
+    this.annotations.forEach((a) => {
+      const div = document.createElement('div');
+      div.className = 'annotationRect';
+      div.style.left = `${a.x * layerRect.width}px`;
+      div.style.top = `${a.y * layerRect.height}px`;
+      div.style.width = `${a.width * layerRect.width}px`;
+      div.style.height = `${a.height * layerRect.height}px`;
+      this.annotationLayerEl!.appendChild(div);
     });
   }
 
-  // -------------- DRAW COMMENT / NOTE ICONS ----------------
-  private drawCommentsFromProps() {
-    if (!this.pageDiv) return;
+  private redrawCommentsFromProps() {
+    if (!this.annotationLayerEl) return;
 
-    // Remove old icons
-    this.pageDiv.querySelectorAll('.comment-icon').forEach((el) => el.remove());
+    // clear existing icons
+    this.annotationLayerEl
+      .querySelectorAll('.comment-icon, .note-icon')
+      .forEach((el) => el.remove());
 
-    const rect = this.pageDiv.getBoundingClientRect();
+    const layerRect = this.annotationLayerEl.getBoundingClientRect();
+    if (!layerRect.width || !layerRect.height) return;
 
     this.comments.forEach((c) => {
       const icon = document.createElement('div');
-      icon.className = 'comment-icon';
-      // 💬 for comment, 🟦 sticky-like note
-      icon.textContent = c.kind === 'comment' ? '💬' : '📝';
+      icon.className = c.kind === 'note' ? 'note-icon' : 'comment-icon';
 
-      Object.assign(icon.style, {
-        position: 'absolute',
-        left: c.x * rect.width + 'px',
-        top: c.y * rect.height + 'px',
-        fontSize: '20px',
-        cursor: 'pointer',
-        zIndex: '30',
-      });
+      icon.style.left = `${c.x * layerRect.width}px`;
+      icon.style.top = `${c.y * layerRect.height}px`;
+
+      // emoji – already styled by your CSS
+      icon.textContent = c.kind === 'note' ? '📝' : '💬';
 
       icon.addEventListener('click', (ev) => {
         ev.stopPropagation();
         this.commentIconClicked.emit({ page: this.page, commentId: c.id });
       });
 
-      this.pageDiv!.appendChild(icon);
+      this.annotationLayerEl!.appendChild(icon);
     });
   }
 

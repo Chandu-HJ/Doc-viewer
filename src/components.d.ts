@@ -23,6 +23,10 @@ export namespace Components {
           * @default []
          */
         "comments": PageComment[];
+        /**
+          * @default 'pdf'
+         */
+        "fileType": 'pdf' | 'image' | 'text';
         "page": number;
         /**
           * @default 1.2
@@ -113,6 +117,10 @@ declare namespace LocalJSX {
           * @default []
          */
         "comments"?: PageComment[];
+        /**
+          * @default 'pdf'
+         */
+        "fileType"?: 'pdf' | 'image' | 'text';
         "onAnnotationCreated"?: (event: DocPageCustomEvent<{ page: number; rect: NormalizedRect }>) => void;
         "onCommentAddRequested"?: (event: DocPageCustomEvent<{
     page: number;

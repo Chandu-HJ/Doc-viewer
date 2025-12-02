@@ -7,6 +7,8 @@ import { HistoryManager } from '../../utils/history';
 const pdfjsLib = (window as any).pdfjsLib;
 const TAG_OPTIONS = ['None', 'Important', 'Todo', 'Question', 'Idea'];
 
+type FileType = 'pdf' | 'image' | 'text';
+
 @Component({
   tag: 'doc-viewer',
   styleUrl: 'doc-viewer.css',
@@ -28,12 +30,22 @@ export class DocViewer {
   @State() sidebarDraftText = '';
   @State() sidebarDraftTag = 'None';
 
+  @State() fileType: FileType = 'pdf';
+
   private history = new HistoryManager<{
     annotations: Record<number, NormalizedRect[]>;
     comments: Record<number, PageComment[]>;
   }>();
 
   private fileInputEl?: HTMLInputElement;
+
+  private detectFileType(src: string): FileType {
+    const s = src.toLowerCase();
+    if (s.endsWith('.pdf')) return 'pdf';
+    if (s.match(/\.(png|jpe?g|gif|bmp|webp)$/)) return 'image';
+    if (s.match(/\.(txt|md)$/)) return 'text';
+    return 'text';
+  }
 
   async componentDidLoad() {
     const ann = localStorage.getItem('pdf_annotations');
@@ -42,9 +54,15 @@ export class DocViewer {
     const cm = localStorage.getItem('pdf_comments');
     if (cm) this.comments = JSON.parse(cm);
 
-    const loadingTask = pdfjsLib.getDocument(this.src);
-    const pdf = await loadingTask.promise;
-    this.numPages = pdf.numPages;
+    this.fileType = this.detectFileType(this.src);
+
+    if (this.fileType === 'pdf') {
+      const loadingTask = pdfjsLib.getDocument(this.src);
+      const pdf = await loadingTask.promise;
+      this.numPages = pdf.numPages;
+    } else {
+      this.numPages = 1;
+    }
 
     this.history.pushState({
       annotations: this.annotations,
@@ -52,7 +70,7 @@ export class DocViewer {
     });
   }
 
-  // ========== HISTORY HELPERS ==========
+  // ===== HISTORY =====
   private pushHistory() {
     this.history.pushState({
       annotations: this.annotations,
@@ -87,15 +105,15 @@ export class DocViewer {
     this.persist();
   };
 
-  // ========== HIGHLIGHT CREATED BY CHILD ==========
+  // ===== HIGHLIGHT CREATED BY CHILD =====
   handleAnnotationCreated = (
     ev: CustomEvent<{ page: number; rect: NormalizedRect }>
   ) => {
     const { page, rect } = ev.detail;
     this.pushHistory();
 
-    const updated = { ...this.annotations };
-    const list = updated[page] || [];
+    const updated: Record<number, NormalizedRect[]> = { ...this.annotations };
+    const list = updated[page] ? [...updated[page]] : [];
     list.push(rect);
     updated[page] = list;
 
@@ -103,7 +121,7 @@ export class DocViewer {
     this.persist();
   };
 
-  // ========== COMMENT / NOTE CREATED BY CLICK ==========
+  // ===== COMMENT / NOTE CREATED BY CLICK =====
   handleCommentAddRequested = (
     ev: CustomEvent<{ page: number; x: number; y: number; kind: AnnotationKind }>
   ) => {
@@ -115,8 +133,8 @@ export class DocViewer {
         ? (crypto as any).randomUUID()
         : Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
-    const updated = { ...this.comments };
-    const list = updated[page] || [];
+    const updated: Record<number, PageComment[]> = { ...this.comments };
+    const list = updated[page] ? [...updated[page]] : [];
 
     list.push({
       id,
@@ -132,7 +150,6 @@ export class DocViewer {
     this.comments = updated;
     this.persist();
 
-    // Open sidebar focusing on this annotation
     this.sidebarOpen = true;
     this.sidebarPage = page;
     this.sidebarSelectedId = id;
@@ -140,11 +157,12 @@ export class DocViewer {
     this.sidebarDraftTag = 'None';
   };
 
-  // ========== COMMENT ICON CLICKED ==========
+  // ===== COMMENT / NOTE ICON CLICKED =====
   handleCommentIconClicked = (
     ev: CustomEvent<{ page: number; commentId: string }>
   ) => {
     const { page, commentId } = ev.detail;
+
     this.sidebarOpen = true;
     this.sidebarPage = page;
     this.sidebarSelectedId = commentId;
@@ -156,17 +174,17 @@ export class DocViewer {
     }
   };
 
-  private getComment(page: number, id: string) {
+  private getComment(page: number, id: string): PageComment | null {
     const list = this.comments[page] || [];
     return list.find((c) => c.id === id) || null;
   }
 
-  // ========== TOOLBAR ==========
+  // ===== TOOLBAR =====
   setTool(tool: 'select' | 'highlight' | 'comment' | 'note') {
     this.activeTool = tool;
   }
 
-  // ========== SIDEBAR HELPERS ==========
+  // ===== SIDEBAR HELPERS =====
   private getSidebarComments(): PageComment[] {
     if (!this.sidebarPage) return [];
     return this.comments[this.sidebarPage] || [];
@@ -207,7 +225,6 @@ export class DocViewer {
       ...this.comments,
       [page]: list,
     };
-
     this.persist();
   };
 
@@ -219,7 +236,7 @@ export class DocViewer {
     this.sidebarDraftTag = 'None';
   };
 
-  // ========== EXPORT / IMPORT JSON ==========
+  // ===== EXPORT / IMPORT JSON =====
   exportJson = () => {
     const data = {
       annotations: this.annotations,
@@ -258,7 +275,7 @@ export class DocViewer {
     input.value = '';
   };
 
-  // ========== SIDEBAR RENDER ==========
+  // ===== SIDEBAR RENDER =====
   renderSidebar() {
     if (!this.sidebarOpen || !this.sidebarPage) return null;
 
@@ -315,7 +332,6 @@ export class DocViewer {
               <label class="tag-label">
                 Tag:{' '}
                 <select
-                //   value={this.sidebarDraftTag}
                   onInput={(e: any) =>
                     (this.sidebarDraftTag = e.target.value)
                   }
@@ -332,11 +348,13 @@ export class DocViewer {
                 }
                 placeholder="Type annotation details here..."
               ></textarea>
-              <button onClick={this.saveSidebarAnnotation}>Save</button>
+              <div class="editor-buttons">
+                <button onClick={this.saveSidebarAnnotation}>Save</button>
+              </div>
             </>
           ) : (
             <div class="editor-meta">
-              Click a comment or note icon on the PDF, or a list item above.
+              Click a comment or note icon on the doc, or a list item above.
             </div>
           )}
         </div>
@@ -403,13 +421,14 @@ export class DocViewer {
           <div class="pdf-panel">
             <div class="pages-container">
               {this.numPages === 0 ? (
-                <div class="loading">Loading PDF…</div>
+                <div class="loading">Loading document…</div>
               ) : (
                 Array.from({ length: this.numPages }, (_, i) => (
                   <doc-page
                     src={this.src}
                     page={i + 1}
                     scale={this.scale}
+                    fileType={this.fileType}
                     activeTool={this.activeTool}
                     annotations={this.annotations[i + 1] || []}
                     comments={this.comments[i + 1] || []}

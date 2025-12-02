@@ -27,9 +27,11 @@
 }
 
 /* Comment / note icons */
-.comment-icon {
+.comment-icon,
+.note-icon {
   position: absolute;
   font-size: 20px;
   cursor: pointer;
   z-index: 30;
+  user-select: none;
 }
