@@ -18,11 +18,14 @@ export class DocWorkspace {
   @State() files: WorkspaceFile[] = [];
   @State() activeId: string | null = null;
 
+  // ⭐ Global theme state (affects viewer + workspace)
+  @State() theme: 'light' | 'dark' | 'sepia' = 'light';
+
   private fileInput?: HTMLInputElement;
 
-  // -----------------------------------------------------------------------------------
+  // ------------------------------------------------------------
   // FILE UPLOAD
-  // -----------------------------------------------------------------------------------
+  // ------------------------------------------------------------
   private onFileSelected = (e: Event) => {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -34,7 +37,6 @@ export class DocWorkspace {
     let fileType: FileType = 'text';
     if (ext.endsWith('.pdf')) fileType = 'pdf';
     else if (ext.match(/\.(png|jpg|jpeg|gif|bmp|webp)$/)) fileType = 'image';
-    else fileType = 'text';
 
     const url = URL.createObjectURL(file);
 
@@ -52,9 +54,9 @@ export class DocWorkspace {
     input.value = '';
   };
 
-  // -----------------------------------------------------------------------------------
-  // CLOSE FILE TAB
-  // -----------------------------------------------------------------------------------
+  // ------------------------------------------------------------
+  // CLOSE TAB
+  // ------------------------------------------------------------
   private closeFile(id: string) {
     this.files = this.files.filter((f) => f.id !== id);
 
@@ -63,16 +65,16 @@ export class DocWorkspace {
     }
   }
 
-  // -----------------------------------------------------------------------------------
+  // ------------------------------------------------------------
   // RENDER
-  // -----------------------------------------------------------------------------------
+  // ------------------------------------------------------------
   render() {
     const activeFile = this.files.find((f) => f.id === this.activeId);
 
     return (
-      <div class="workspace-container">
+      <div class={`workspace-container theme-${this.theme}`}>
 
-        {/* ------------------------ OPEN BUTTON ------------------------- */}
+        {/* ------------------------ WORKSPACE TOOLBAR ------------------------- */}
         <div class="workspace-toolbar">
           <button class="open-btn" onClick={() => this.fileInput?.click()}>
             📂 Open File
@@ -85,6 +87,27 @@ export class DocWorkspace {
             ref={(el) => (this.fileInput = el as HTMLInputElement)}
             onChange={this.onFileSelected}
           />
+
+          <div class="toolbar-spacer"></div>
+
+          {/* ⭐ THEME SWITCHER */}
+          <label class="theme-label">Theme:</label>
+          <select
+            class="theme-select"
+            onChange={(e: any) => {
+              this.theme = e.target.value;
+            }}
+          >
+            <option value="light" selected={this.theme === 'light'}>
+              Light
+            </option>
+            <option value="dark" selected={this.theme === 'dark'}>
+              Dark
+            </option>
+            <option value="sepia" selected={this.theme === 'sepia'}>
+              Sepia
+            </option>
+          </select>
         </div>
 
         {/* ------------------------ TABS ------------------------- */}
@@ -116,10 +139,12 @@ export class DocWorkspace {
         <div class="workspace-viewer">
           {activeFile ? (
             <doc-viewer
-            key={activeFile.id} 
+              key={activeFile.id}
               src={activeFile.url}
-              fileType={activeFile.fileType}  // ⭐ FIX: send actual type
+              fileType={activeFile.fileType}
               scale={1.2}
+              theme={this.theme}      // ⭐ PASS THEME TO VIEWER
+              mode="editor"           // default for workspace
             ></doc-viewer>
           ) : (
             <div class="empty">

@@ -19,10 +19,10 @@ export class DocViewer {
   @Prop() scale: number = 1.2;
   @Prop() fileType: FileType = 'pdf';
 
-  // Embedded (LMS) → no toolbar, read-only
+  // Embedded mode = viewer only + no toolbar
   @Prop({ mutable: true, reflect: true }) embedded: boolean = false;
 
-  // Theme + mode (editor / viewer)
+  // Theme and mode
   @Prop({ mutable: true, reflect: true }) theme: 'light' | 'dark' | 'sepia' = 'light';
   @Prop({ mutable: true, reflect: true }) mode: 'viewer' | 'editor' = 'editor';
 
@@ -38,17 +38,18 @@ export class DocViewer {
   @State() sidebarDraftText = '';
   @State() sidebarDraftTag = 'None';
 
+  private fileInputEl?: HTMLInputElement;
+
   private history = new HistoryManager<{
     annotations: Record<number, NormalizedRect[]>;
     comments: Record<number, PageComment[]>;
   }>();
 
-  private fileInputEl?: HTMLInputElement;
-
-  // ---------- STORAGE ----------
+  // --------------------
+  // STORAGE KEYS
+  // --------------------
   private storageKey(kind: 'annotations' | 'comments'): string {
-    const base = this.src || 'default';
-    const safe = base.replace(/[^a-z0-9]/gi, '_');
+    const safe = (this.src || 'file').replace(/[^a-z0-9]/gi, '_');
     return `dv_${kind}_${safe}`;
   }
 
@@ -61,23 +62,23 @@ export class DocViewer {
   }
 
   async componentDidLoad() {
-    // Optional: auto-embedded from URL ?embedded=true
+    // check for ?embedded=true
     const url = new URL(window.location.href);
-    if (url.searchParams.get('embedded') === 'true') {
-      this.embedded = true;
-    }
+    if (url.searchParams.get('embedded') === 'true') this.embedded = true;
 
-    const ann = localStorage.getItem(this.storageKey('annotations'));
-    if (ann) this.annotations = JSON.parse(ann);
+    // load storage
+    const a = localStorage.getItem(this.storageKey('annotations'));
+    if (a) this.annotations = JSON.parse(a);
+    const c = localStorage.getItem(this.storageKey('comments'));
+    if (c) this.comments = JSON.parse(c);
 
-    const cm = localStorage.getItem(this.storageKey('comments'));
-    if (cm) this.comments = JSON.parse(cm);
-
+    // auto detect file type
     if (!this.fileType) this.fileType = this.detectFileType(this.src);
 
+    // load page count
     if (this.fileType === 'pdf') {
-      const loadingTask = pdfjsLib.getDocument(this.src);
-      const pdf = await loadingTask.promise;
+      const task = pdfjsLib.getDocument(this.src);
+      const pdf = await task.promise;
       this.numPages = pdf.numPages;
     } else {
       this.numPages = 1;
@@ -89,7 +90,9 @@ export class DocViewer {
     });
   }
 
-  // ===== HISTORY =====
+  // --------------------
+  // HISTORY
+  // --------------------
   private pushHistory() {
     this.history.pushState({
       annotations: this.annotations,
@@ -103,38 +106,39 @@ export class DocViewer {
   }
 
   undo = () => {
-    const state = this.history.undo({
+    const s = this.history.undo({
       annotations: this.annotations,
       comments: this.comments,
     });
-    if (!state) return;
-    this.annotations = state.annotations;
-    this.comments = state.comments;
+    if (!s) return;
+    this.annotations = s.annotations;
+    this.comments = s.comments;
     this.persist();
   };
 
   redo = () => {
-    const state = this.history.redo({
+    const s = this.history.redo({
       annotations: this.annotations,
       comments: this.comments,
     });
-    if (!state) return;
-    this.annotations = state.annotations;
-    this.comments = state.comments;
+    if (!s) return;
+    this.annotations = s.annotations;
+    this.comments = s.comments;
     this.persist();
   };
 
-  // ===== ANNOTATION EVENTS =====
+  // --------------------
+  // EVENT HANDLERS
+  // --------------------
   handleAnnotationCreated = (ev: CustomEvent<{ page: number; rect: NormalizedRect }>) => {
-    const { page, rect } = ev.detail;
     this.pushHistory();
+    const { page, rect } = ev.detail;
 
-    const updated = { ...this.annotations };
-    const list = updated[page] ? [...updated[page]] : [];
-    list.push(rect);
-    updated[page] = list;
+    const copy = { ...this.annotations };
+    const list = copy[page] || [];
+    copy[page] = [...list, rect];
 
-    this.annotations = updated;
+    this.annotations = copy;
     this.persist();
   };
 
@@ -144,12 +148,10 @@ export class DocViewer {
     this.pushHistory();
 
     const { page, x, y, kind } = ev.detail;
-    const id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36);
 
-    const updated = { ...this.comments };
-    const list = updated[page] ? [...updated[page]] : [];
+    const id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
 
-    list.push({
+    const newComment: PageComment = {
       id,
       kind,
       x,
@@ -157,10 +159,13 @@ export class DocViewer {
       text: '',
       tag: 'None',
       createdAt: new Date().toISOString(),
-    });
+    };
 
-    updated[page] = list;
-    this.comments = updated;
+    const copy = { ...this.comments };
+    const list = copy[page] || [];
+    copy[page] = [...list, newComment];
+
+    this.comments = copy;
     this.persist();
 
     this.sidebarOpen = true;
@@ -185,51 +190,20 @@ export class DocViewer {
   };
 
   private getComment(page: number, id: string) {
-    const list = this.comments[page] || [];
-    return list.find((c) => c.id === id) || null;
+    return (this.comments[page] || []).find((c) => c.id === id) || null;
   }
 
-  // ===== TOOLBAR =====
-  setTool(tool: 'select' | 'highlight' | 'comment' | 'note') {
-    this.activeTool = tool;
-  }
-
-  changeTheme(newTheme: 'light' | 'dark' | 'sepia') {
-    this.theme = newTheme;
-  }
-
-  changeMode(newMode: 'viewer' | 'editor') {
-    this.mode = newMode;
-  }
-
-  // ===== SIDEBAR =====
-  private getSidebarComments() {
-    if (!this.sidebarPage) return [];
-    return this.comments[this.sidebarPage] || [];
-  }
-
-  private getSelectedComment() {
-    if (!this.sidebarPage || !this.sidebarSelectedId) return null;
-    const list = this.comments[this.sidebarPage] || [];
-    return list.find((c) => c.id === this.sidebarSelectedId) || null;
-  }
-
-  private selectSidebarComment(id: string) {
-    this.sidebarSelectedId = id;
-    const c = this.getSelectedComment();
-    if (c) {
-      this.sidebarDraftText = c.text;
-      this.sidebarDraftTag = c.tag;
-    }
-  }
-
+  // --------------------
+  // SIDEBAR SAVE / DELETE
+  // --------------------
   saveSidebarAnnotation = () => {
-    if (!this.sidebarPage || !this.sidebarSelectedId) return;
+    if (!this.sidebarSelectedId || !this.sidebarPage) return;
 
     this.pushHistory();
 
     const page = this.sidebarPage;
     const list = [...(this.comments[page] || [])];
+
     const idx = list.findIndex((c) => c.id === this.sidebarSelectedId);
     if (idx < 0) return;
 
@@ -243,35 +217,16 @@ export class DocViewer {
     this.persist();
   };
 
-  // ===== MOCK AI TAG =====
-  private async mockAITag(text: string): Promise<string> {
-    text = text.toLowerCase();
-    if (!text.trim()) return 'None';
-    if (text.includes('?')) return 'Question';
-    if (text.includes('important') || text.length > 80) return 'Important';
-    if (text.includes('todo') || text.includes('fix')) return 'Todo';
-    if (text.includes('idea')) return 'Idea';
-    return 'Idea';
-  }
-
-  closeSidebar = () => {
-    this.sidebarOpen = false;
-    this.sidebarPage = null;
-    this.sidebarSelectedId = null;
-    this.sidebarDraftText = '';
-    this.sidebarDraftTag = 'None';
-  };
-
-  // ===== DELETE COMMENT =====
   deleteSidebarAnnotation = () => {
-    if (!this.sidebarPage || !this.sidebarSelectedId) return;
+    if (!this.sidebarSelectedId || !this.sidebarPage) return;
 
     this.pushHistory();
-
     const page = this.sidebarPage;
-    const list = [...(this.comments[page] || [])];
 
-    const updated = list.filter((c) => c.id !== this.sidebarSelectedId);
+    const updated = (this.comments[page] || []).filter(
+      (c) => c.id !== this.sidebarSelectedId,
+    );
+
     this.comments = { ...this.comments, [page]: updated };
     this.persist();
 
@@ -280,10 +235,14 @@ export class DocViewer {
     this.sidebarDraftTag = 'None';
   };
 
-  // ===== EXPORT / IMPORT =====
+  // --------------------
+  // EXPORT / IMPORT
+  // --------------------
   exportJson = () => {
-    const data = { annotations: this.annotations, comments: this.comments };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const blob = new Blob(
+      [JSON.stringify({ annotations: this.annotations, comments: this.comments }, null, 2)],
+      { type: 'application/json' },
+    );
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement('a');
@@ -302,122 +261,127 @@ export class DocViewer {
     reader.onload = () => {
       try {
         const data = JSON.parse(reader.result as string);
+
         this.pushHistory();
         this.annotations = data.annotations || {};
         this.comments = data.comments || {};
         this.persist();
-      } catch {
-        // ignore
-      }
+      } catch { }
     };
     reader.readAsText(file);
   };
 
-  // ===== SIDEBAR UI =====
-  renderSidebar() {
+  // --------------------
+  // MOCK AI TAGGING
+  // --------------------
+  private async mockAITag(text: string) {
+    const t = text.toLowerCase();
+
+    if (!t.trim()) return 'None';
+    if (t.includes('important')) return 'Important';
+    if (t.includes('?')) return 'Question';
+    if (t.includes('todo') || t.includes('fix')) return 'Todo';
+    if (t.includes('idea')) return 'Idea';
+    return 'Idea';
+  }
+
+  // --------------------
+  // SIDEBAR RENDER
+  // --------------------
+  private getSidebarComments() {
+    if (!this.sidebarPage) return [];
+    return this.comments[this.sidebarPage] || [];
+  }
+
+  private renderSidebar() {
     if (!this.sidebarOpen || !this.sidebarPage) return null;
 
-    const pageComments = this.getSidebarComments();
-    const selected = this.getSelectedComment();
+    const items = this.getSidebarComments();
+    const selected = this.sidebarSelectedId
+      ? items.find((c) => c.id === this.sidebarSelectedId)
+      : null;
+
     const readOnly = this.mode === 'viewer' || this.embedded;
 
     return (
       <div class="comment-sidebar">
         <div class="sidebar-header">
-          <strong>Annotations – Page {this.sidebarPage}</strong>
-          <button class="close-btn" onClick={this.closeSidebar}>
-            ✕
-          </button>
+          <strong>Page {this.sidebarPage}</strong>
+          <button onClick={() => (this.sidebarOpen = false)}>✕</button>
         </div>
 
         <div class="comment-list">
-          {pageComments.length === 0 ? (
-            <div class="empty">No comments or notes yet.</div>
-          ) : (
-            pageComments.map((c) => (
-              <div
-                class={{
-                  'comment-item': true,
-                  selected: c.id === this.sidebarSelectedId,
-                }}
-                onClick={() => this.selectSidebarComment(c.id)}
-              >
-                <div class="comment-meta">
-                  <span class="kind-pill">{c.kind === 'comment' ? 'Comment' : 'Note'}</span>
-                  <span class="meta-time">• {new Date(c.createdAt).toLocaleString()}</span>
-                </div>
-                <div class="comment-meta tag-line">Tag: {c.tag}</div>
-                <div class="comment-text-preview">
-                  {c.text ? c.text.slice(0, 80) : '(no text yet)'}
-                </div>
+          {items.map((c) => (
+            <div
+              class={{
+                'comment-item': true,
+                selected: c.id === this.sidebarSelectedId,
+              }}
+              onClick={() => {
+                this.sidebarSelectedId = c.id;
+                this.sidebarDraftText = c.text;
+                this.sidebarDraftTag = c.tag;
+              }}
+            >
+              <div class="meta">
+                <b>{c.kind === 'note' ? 'Note' : 'Comment'}</b> •{' '}
+                {new Date(c.createdAt).toLocaleString()}
               </div>
-            ))
-          )}
+              <div>Tag: {c.tag}</div>
+              <div>{c.text ? c.text.slice(0, 60) : '(empty)'}</div>
+            </div>
+          ))}
         </div>
 
-        <div class="comment-editor">
-          {selected ? (
-            <>
-              <div class="editor-meta">
-                Editing {selected.kind} created {new Date(selected.createdAt).toLocaleString()}
-              </div>
+        {selected ? (
+          <div class="comment-editor">
+            <textarea
+              disabled={readOnly}
+              value={this.sidebarDraftText}
+              onInput={(e: any) => (this.sidebarDraftText = e.target.value)}
+            ></textarea>
 
-              <label class="tag-label">
-                Tag:
-                <select
-                  disabled={readOnly}
-                  onChange={(e: any) => (this.sidebarDraftTag = e.target.value)}
-                >
-                  {TAG_OPTIONS.map((t) => (
-                    <option value={t} selected={this.sidebarDraftTag === t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <select
+              disabled={readOnly}
+              onChange={(e: any) => (this.sidebarDraftTag = e.target.value)}
+            >
+              {TAG_OPTIONS.map((t) => (
+                <option value={t} selected={t === this.sidebarDraftTag}>
+                  {t}
+                </option>
+              ))}
+            </select>
 
-              <textarea
-                value={this.sidebarDraftText}
+            <div class="editor-buttons">
+              <button disabled={readOnly} onClick={this.saveSidebarAnnotation}>
+                Save
+              </button>
+
+              <button
                 disabled={readOnly}
-                onInput={(e: any) => (this.sidebarDraftText = e.target.value)}
-                placeholder="Type annotation details here..."
-              ></textarea>
+                onClick={async () => {
+                  this.sidebarDraftTag = await this.mockAITag(this.sidebarDraftText);
+                  this.saveSidebarAnnotation();
+                }}
+              >
+                🤖 Auto-Tag
+              </button>
 
-              <div class="editor-buttons">
-                <button disabled={readOnly} onClick={this.saveSidebarAnnotation}>
-                  Save
-                </button>
-
-                <button
-                  class="ai-tag-btn"
-                  disabled={readOnly}
-                  onClick={async () => {
-                    const aiTag = await this.mockAITag(this.sidebarDraftText);
-                    this.sidebarDraftTag = aiTag;
-                    this.saveSidebarAnnotation();
-                  }}
-                >
-                  🤖 Auto-Tag
-                </button>
-
-                <button
-                  class="delete-btn"
-                  disabled={readOnly}
-                  onClick={this.deleteSidebarAnnotation}
-                >
-                  🗑 Delete
-                </button>
-              </div>
-            </>
-          ) : (
-            <div class="editor-meta">Click a comment or note icon on the doc.</div>
-          )}
-        </div>
+              <button disabled={readOnly} onClick={this.deleteSidebarAnnotation}>
+                🗑 Delete
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div class="empty-editor">Select an annotation</div>
+        )}
       </div>
     );
   }
 
-  // ===== MAIN RENDER =====
+  // --------------------
+  // MAIN RENDER
+  // --------------------
   render() {
     const readOnly = this.mode === 'viewer' || this.embedded;
 
@@ -427,118 +391,103 @@ export class DocViewer {
         {!this.embedded && (
           <div class="toolbar">
             {/* Tools */}
-            <button
-              class={this.activeTool === 'select' ? 'active' : ''}
-              disabled={readOnly}
-              onClick={() => !readOnly && this.setTool('select')}
-            >
-              🖱 Select
+            <button disabled={readOnly} onClick={() => (this.activeTool = 'select')}>
+              Select
+            </button>
+            <button disabled={readOnly} onClick={() => (this.activeTool = 'highlight')}>
+              Highlight
+            </button>
+            <button disabled={readOnly} onClick={() => (this.activeTool = 'comment')}>
+              Comment
+            </button>
+            <button disabled={readOnly} onClick={() => (this.activeTool = 'note')}>
+              Note
             </button>
 
-            <button
-              class={this.activeTool === 'highlight' ? 'active' : ''}
-              disabled={readOnly}
-              onClick={() => !readOnly && this.setTool('highlight')}
-            >
-              🖍 Highlight
+            <div class="spacer"></div>
+
+            {/* Undo/Redo */}
+            <button disabled={readOnly} onClick={this.undo}>
+              ⤺ Undo
+            </button>
+            <button disabled={readOnly} onClick={this.redo}>
+              ⤼ Redo
             </button>
 
-            <button
-              class={this.activeTool === 'comment' ? 'active' : ''}
-              disabled={readOnly}
-              onClick={() => !readOnly && this.setTool('comment')}
-            >
-              💬 Comment
+            <div class="spacer"></div>
+
+            {/* JSON */}
+            <button onClick={this.exportJson}>⬇ Export</button>
+            <button disabled={readOnly} onClick={() => this.fileInputEl?.click()}>
+              ⬆ Import
             </button>
+            <input
+              type="file"
+              style={{ display: 'none' }}
+              ref={(el) => (this.fileInputEl = el as HTMLInputElement)}
+              onChange={this.onImportFileChange}
+            />
 
-            <button
-              class={this.activeTool === 'note' ? 'active' : ''}
-              disabled={readOnly}
-              onClick={() => !readOnly && this.setTool('note')}
-            >
-              📝 Note
-            </button>
+            {/* Theme */}
+            <label>Theme:</label>
+            <select onChange={(e: any) => (this.theme = e.target.value)}>
+              <option value="light" selected={this.theme === 'light'}>
+                Light
+              </option>
+              <option value="dark" selected={this.theme === 'dark'}>
+                Dark
+              </option>
+              <option value="sepia" selected={this.theme === 'sepia'}>
+                Sepia
+              </option>
+            </select>
 
-            <div class="toolbar-spacer" />
-
-            {/* Undo / Redo */}
-            <div class="toolbar-group">
-              <button disabled={readOnly} onClick={this.undo}>
-                ↩ Undo
-              </button>
-              <button disabled={readOnly} onClick={this.redo}>
-                ↪ Redo
-              </button>
-            </div>
-
-            {/* Export / Import */}
-            <div class="toolbar-group">
-              <button onClick={this.exportJson}>⬇ Export JSON</button>
-              <button disabled={readOnly} onClick={() => this.fileInputEl?.click()}>
-                ⬆ Import JSON
-              </button>
-              <input
-                type="file"
-                accept="application/json"
-                style={{ display: 'none' }}
-                ref={(el) => (this.fileInputEl = el as HTMLInputElement)}
-                onChange={this.onImportFileChange}
-              />
-            </div>
-
-            {/* Theme Switcher */}
-            <div class="toolbar-group">
-              <label>Theme: </label>
-              <select onChange={(e: any) => this.changeTheme(e.target.value)}>
-                <option value="light" selected={this.theme === "light"}>Light</option>
-                <option value="dark" selected={this.theme === "dark"}>Dark</option>
-                <option value="sepia" selected={this.theme === "sepia"}>Sepia</option>
-              </select>
-
-            </div>
-
-            {/* Mode Switcher */}
-            <div class="toolbar-group">
-              <label>Mode: </label>
-              <select onChange={(e: any) => this.changeMode(e.target.value)}>
-                <option value="editor" selected={this.mode === "editor"}>Editor</option>
-                <option value="viewer" selected={this.mode === "viewer"}>Viewer</option>
-              </select>
-
-            </div>
+            {/* Mode */}
+            <label>Mode:</label>
+            <select onChange={(e: any) => (this.mode = e.target.value)}>
+              <option value="editor" selected={this.mode === 'editor'}>
+                Editor
+              </option>
+              <option value="viewer" selected={this.mode === 'viewer'}>
+                Viewer
+              </option>
+            </select>
           </div>
         )}
 
-        {/* MAIN */}
         <div class="viewer-main">
-          <div class="pdf-panel">
-            <div class="pages-container">
-              {this.numPages === 0 ? (
-                <div class="loading">Loading document…</div>
-              ) : (
-                Array.from({ length: this.numPages }, (_, i) => (
-                 <doc-page
-  src={this.src}
-  page={i + 1}
-  scale={this.scale}
-  fileType={this.fileType}
-  activeTool={this.activeTool}
-  {...{ readOnly }}     // ⭐ FIXED — boolean stays boolean
-  annotations={this.annotations[i + 1] || []}
-  comments={this.comments[i + 1] || []}
-  onAnnotationCreated={this.handleAnnotationCreated}
-  onCommentAddRequested={this.handleCommentAddRequested}
-  onCommentIconClicked={this.handleCommentIconClicked}
-></doc-page>
 
-                ))
-              )}
+          {/* PDF SCROLL AREA */}
+          <div
+            class={{
+              "pdf-panel": true,
+              "has-sidebar": this.sidebarOpen   // ⭐ shifts PDF when sidebar is open
+            }}
+          >
+            <div class="pages-container">
+              {Array.from({ length: this.numPages }, (_, i) => (
+                <doc-page
+                  src={this.src}
+                  page={i + 1}
+                  key={i}
+                  scale={this.scale}
+                  fileType={this.fileType}
+                  readOnly={readOnly}
+                  activeTool={this.activeTool}
+                  annotations={this.annotations[i + 1] || []}
+                  comments={this.comments[i + 1] || []}
+                  onAnnotationCreated={this.handleAnnotationCreated}
+                  onCommentAddRequested={this.handleCommentAddRequested}
+                  onCommentIconClicked={this.handleCommentIconClicked}
+                ></doc-page>
+              ))}
             </div>
           </div>
 
-          {/* Sidebar hidden in embedded mode */}
+          {/* SIDEBAR */}
           {!this.embedded && this.renderSidebar()}
         </div>
+
       </div>
     );
   }
