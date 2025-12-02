@@ -1,0 +1,57 @@
+.workspace-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* Top open file bar */
+.workspace-toolbar {
+  padding: 10px;
+  border-bottom: 1px solid #ddd;
+  background: #f5f5f5;
+}
+
+.open-btn {
+  padding: 6px 14px;
+  border-radius: 4px;
+  background: white;
+  border: 1px solid #aaa;
+  cursor: pointer;
+}
+
+/* Tabs */
+.workspace-tabs {
+  display: flex;
+  background: #fafafa;
+  border-bottom: 1px solid #ddd;
+}
+
+.tab {
+  padding: 8px 14px;
+  cursor: pointer;
+  border-right: 1px solid #ddd;
+  position: relative;
+}
+
+.tab.active {
+  background: white;
+  font-weight: bold;
+}
+
+.close-x {
+  margin-left: 8px;
+  cursor: pointer;
+  color: #d33;
+}
+
+/* Viewer area */
+.workspace-viewer {
+  flex: 1;
+  overflow: auto;
+}
+
+.empty {
+  padding: 20px;
+  text-align: center;
+  color: #777;
+}

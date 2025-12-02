@@ -5,3 +5,4 @@ export type NormalizedRect = {
   width: number;
   height: number;
 };
+export type FileType = 'pdf' | 'image' | 'text';

@@ -7,8 +7,10 @@
 import { HTMLStencilElement, JSXBase } from "@stencil/core/internal";
 import { NormalizedRect } from "./types/annotations";
 import { AnnotationKind, PageComment } from "./types/comments";
+import { FileType } from "./components/doc-viewer/doc-viewer";
 export { NormalizedRect } from "./types/annotations";
 export { AnnotationKind, PageComment } from "./types/comments";
+export { FileType } from "./components/doc-viewer/doc-viewer";
 export namespace Components {
     interface DocPage {
         /**
@@ -36,10 +38,19 @@ export namespace Components {
     }
     interface DocViewer {
         /**
+          * Optional explicit type from workspace (pdf / image / text)
+         */
+        "fileType"?: FileType;
+        /**
           * @default 1.2
          */
         "scale": number;
+        /**
+          * Source URL (assets path or blob: URL)
+         */
         "src": string;
+    }
+    interface DocWorkspace {
     }
     interface MyComponent {
         /**
@@ -91,6 +102,12 @@ declare global {
         prototype: HTMLDocViewerElement;
         new (): HTMLDocViewerElement;
     };
+    interface HTMLDocWorkspaceElement extends Components.DocWorkspace, HTMLStencilElement {
+    }
+    var HTMLDocWorkspaceElement: {
+        prototype: HTMLDocWorkspaceElement;
+        new (): HTMLDocWorkspaceElement;
+    };
     interface HTMLMyComponentElement extends Components.MyComponent, HTMLStencilElement {
     }
     var HTMLMyComponentElement: {
@@ -100,6 +117,7 @@ declare global {
     interface HTMLElementTagNameMap {
         "doc-page": HTMLDocPageElement;
         "doc-viewer": HTMLDocViewerElement;
+        "doc-workspace": HTMLDocWorkspaceElement;
         "my-component": HTMLMyComponentElement;
     }
 }
@@ -138,10 +156,19 @@ declare namespace LocalJSX {
     }
     interface DocViewer {
         /**
+          * Optional explicit type from workspace (pdf / image / text)
+         */
+        "fileType"?: FileType;
+        /**
           * @default 1.2
          */
         "scale"?: number;
+        /**
+          * Source URL (assets path or blob: URL)
+         */
         "src": string;
+    }
+    interface DocWorkspace {
     }
     interface MyComponent {
         /**
@@ -160,6 +187,7 @@ declare namespace LocalJSX {
     interface IntrinsicElements {
         "doc-page": DocPage;
         "doc-viewer": DocViewer;
+        "doc-workspace": DocWorkspace;
         "my-component": MyComponent;
     }
 }
@@ -169,6 +197,7 @@ declare module "@stencil/core" {
         interface IntrinsicElements {
             "doc-page": LocalJSX.DocPage & JSXBase.HTMLAttributes<HTMLDocPageElement>;
             "doc-viewer": LocalJSX.DocViewer & JSXBase.HTMLAttributes<HTMLDocViewerElement>;
+            "doc-workspace": LocalJSX.DocWorkspace & JSXBase.HTMLAttributes<HTMLDocWorkspaceElement>;
             "my-component": LocalJSX.MyComponent & JSXBase.HTMLAttributes<HTMLMyComponentElement>;
         }
     }

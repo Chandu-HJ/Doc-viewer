@@ -7,7 +7,7 @@ import { HistoryManager } from '../../utils/history';
 const pdfjsLib = (window as any).pdfjsLib;
 const TAG_OPTIONS = ['None', 'Important', 'Todo', 'Question', 'Idea'];
 
-type FileType = 'pdf' | 'image' | 'text';
+export type FileType = 'pdf' | 'image' | 'text';
 
 @Component({
   tag: 'doc-viewer',
@@ -15,7 +15,12 @@ type FileType = 'pdf' | 'image' | 'text';
   shadow: false,
 })
 export class DocViewer {
+  /** Source URL (assets path or blob: URL) */
   @Prop() src!: string;
+
+  /** Optional explicit type from workspace (pdf / image / text) */
+  @Prop() fileType?: FileType;
+
   @Prop() scale: number = 1.2;
 
   @State() numPages = 0;
@@ -30,7 +35,8 @@ export class DocViewer {
   @State() sidebarDraftText = '';
   @State() sidebarDraftTag = 'None';
 
-  @State() fileType: FileType = 'pdf';
+  /** Resolved type actually used internally */
+  @State() resolvedFileType: FileType = 'pdf';
 
   private history = new HistoryManager<{
     annotations: Record<number, NormalizedRect[]>;
@@ -39,24 +45,37 @@ export class DocViewer {
 
   private fileInputEl?: HTMLInputElement;
 
+  // ------------- helper: detect type from src if no explicit fileType prop -----
   private detectFileType(src: string): FileType {
     const s = src.toLowerCase();
+
+    // NOTE: blob: URLs have no extension → treat them as text IF caller
+    // didn't give us fileType. In normal workspaces, we’ll pass fileType.
     if (s.endsWith('.pdf')) return 'pdf';
     if (s.match(/\.(png|jpe?g|gif|bmp|webp)$/)) return 'image';
     if (s.match(/\.(txt|md)$/)) return 'text';
+
     return 'text';
   }
 
+  // ---------------------------------------------------------------------------
+
   async componentDidLoad() {
+    // Restore annotations
     const ann = localStorage.getItem('pdf_annotations');
     if (ann) this.annotations = JSON.parse(ann);
 
     const cm = localStorage.getItem('pdf_comments');
     if (cm) this.comments = JSON.parse(cm);
 
-    this.fileType = this.detectFileType(this.src);
+    // Decide which type we really are:
+    // 1) prefer explicit prop from workspace
+    // 2) otherwise guess from src
+    const ft: FileType = this.fileType || this.detectFileType(this.src);
+    this.resolvedFileType = ft;
 
-    if (this.fileType === 'pdf') {
+    // Page count:
+    if (ft === 'pdf') {
       const loadingTask = pdfjsLib.getDocument(this.src);
       const pdf = await loadingTask.promise;
       this.numPages = pdf.numPages;
@@ -64,6 +83,7 @@ export class DocViewer {
       this.numPages = 1;
     }
 
+    // initial history snapshot
     this.history.pushState({
       annotations: this.annotations,
       comments: this.comments,
@@ -107,7 +127,7 @@ export class DocViewer {
 
   // ===== HIGHLIGHT CREATED BY CHILD =====
   handleAnnotationCreated = (
-    ev: CustomEvent<{ page: number; rect: NormalizedRect }>
+    ev: CustomEvent<{ page: number; rect: NormalizedRect }>,
   ) => {
     const { page, rect } = ev.detail;
     this.pushHistory();
@@ -123,7 +143,7 @@ export class DocViewer {
 
   // ===== COMMENT / NOTE CREATED BY CLICK =====
   handleCommentAddRequested = (
-    ev: CustomEvent<{ page: number; x: number; y: number; kind: AnnotationKind }>
+    ev: CustomEvent<{ page: number; x: number; y: number; kind: AnnotationKind }>,
   ) => {
     this.pushHistory();
 
@@ -159,7 +179,7 @@ export class DocViewer {
 
   // ===== COMMENT / NOTE ICON CLICKED =====
   handleCommentIconClicked = (
-    ev: CustomEvent<{ page: number; commentId: string }>
+    ev: CustomEvent<{ page: number; commentId: string }>,
   ) => {
     const { page, commentId } = ev.detail;
 
@@ -176,7 +196,7 @@ export class DocViewer {
 
   private getComment(page: number, id: string): PageComment | null {
     const list = this.comments[page] || [];
-    return list.find((c) => c.id === id) || null;
+    return list.find(c => c.id === id) || null;
   }
 
   // ===== TOOLBAR =====
@@ -193,7 +213,7 @@ export class DocViewer {
   private getSelectedComment(): PageComment | null {
     if (!this.sidebarPage || !this.sidebarSelectedId) return null;
     const list = this.comments[this.sidebarPage] || [];
-    return list.find((c) => c.id === this.sidebarSelectedId) || null;
+    return list.find(c => c.id === this.sidebarSelectedId) || null;
   }
 
   private selectSidebarComment(id: string) {
@@ -212,7 +232,7 @@ export class DocViewer {
 
     const page = this.sidebarPage;
     const list = [...(this.comments[page] || [])];
-    const idx = list.findIndex((c) => c.id === this.sidebarSelectedId);
+    const idx = list.findIndex(c => c.id === this.sidebarSelectedId);
     if (idx < 0) return;
 
     list[idx] = {
@@ -295,7 +315,7 @@ export class DocViewer {
           {pageComments.length === 0 ? (
             <div class="empty">No comments or notes yet.</div>
           ) : (
-            pageComments.map((c) => (
+            pageComments.map(c => (
               <div
                 class={{
                   'comment-item': true,
@@ -336,7 +356,7 @@ export class DocViewer {
                     (this.sidebarDraftTag = e.target.value)
                   }
                 >
-                  {TAG_OPTIONS.map((t) => (
+                  {TAG_OPTIONS.map(t => (
                     <option value={t}>{t}</option>
                   ))}
                 </select>
@@ -410,7 +430,7 @@ export class DocViewer {
               type="file"
               accept="application/json"
               style={{ display: 'none' }}
-              ref={(el) => (this.fileInputEl = el as HTMLInputElement)}
+              ref={el => (this.fileInputEl = el as HTMLInputElement)}
               onChange={this.onImportFileChange}
             />
           </div>
@@ -428,7 +448,7 @@ export class DocViewer {
                     src={this.src}
                     page={i + 1}
                     scale={this.scale}
-                    fileType={this.fileType}
+                    fileType={this.resolvedFileType}
                     activeTool={this.activeTool}
                     annotations={this.annotations[i + 1] || []}
                     comments={this.comments[i + 1] || []}
