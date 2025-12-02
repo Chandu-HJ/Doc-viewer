@@ -35,3 +35,7 @@
   z-index: 30;
   user-select: none;
 }
+
+.pdfViewer .textLayer {
+  pointer-events: none !important;
+}

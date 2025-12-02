@@ -193,3 +193,42 @@ viewer-container {
 .delete-btn:hover {
   background: #d32f2f;
 }
+
+/* ======================
+      THEME SYSTEM
+====================== */
+
+.theme-light {
+  --bg: #ffffff;
+  --text: #000000;
+  --toolbar-bg: #f8f8f8;
+  --sidebar-bg: #ffffff;
+}
+
+.theme-dark {
+  --bg: #1e1e1e;
+  --text: #f2f2f2;
+  --toolbar-bg: #2a2a2a;
+  --sidebar-bg: #2c2c2c;
+}
+
+.theme-sepia {
+  --bg: #f4ecd8;
+  --text: #5b4636;
+  --toolbar-bg: #f0e6d3;
+  --sidebar-bg: #f7efdf;
+}
+
+/* Apply theme variables */
+.viewer-container {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.toolbar {
+  background: var(--toolbar-bg) !important;
+}
+
+.comment-sidebar {
+  background: var(--sidebar-bg) !important;
+}

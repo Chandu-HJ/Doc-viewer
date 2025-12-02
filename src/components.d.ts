@@ -31,6 +31,10 @@ export namespace Components {
         "fileType": 'pdf' | 'image' | 'text';
         "page": number;
         /**
+          * @default false
+         */
+        "readOnly": boolean;
+        /**
           * @default 1.2
          */
         "scale": number;
@@ -38,17 +42,26 @@ export namespace Components {
     }
     interface DocViewer {
         /**
-          * Optional explicit type from workspace (pdf / image / text)
+          * @default false
          */
-        "fileType"?: FileType;
+        "embedded": boolean;
+        /**
+          * @default 'pdf'
+         */
+        "fileType": FileType;
+        /**
+          * @default 'editor'
+         */
+        "mode": 'viewer' | 'editor';
         /**
           * @default 1.2
          */
         "scale": number;
-        /**
-          * Source URL (assets path or blob: URL)
-         */
         "src": string;
+        /**
+          * @default 'light'
+         */
+        "theme": 'light' | 'dark' | 'sepia';
     }
     interface DocWorkspace {
     }
@@ -149,6 +162,10 @@ declare namespace LocalJSX {
         "onCommentIconClicked"?: (event: DocPageCustomEvent<{ page: number; commentId: string }>) => void;
         "page": number;
         /**
+          * @default false
+         */
+        "readOnly"?: boolean;
+        /**
           * @default 1.2
          */
         "scale"?: number;
@@ -156,17 +173,26 @@ declare namespace LocalJSX {
     }
     interface DocViewer {
         /**
-          * Optional explicit type from workspace (pdf / image / text)
+          * @default false
+         */
+        "embedded"?: boolean;
+        /**
+          * @default 'pdf'
          */
         "fileType"?: FileType;
+        /**
+          * @default 'editor'
+         */
+        "mode"?: 'viewer' | 'editor';
         /**
           * @default 1.2
          */
         "scale"?: number;
-        /**
-          * Source URL (assets path or blob: URL)
-         */
         "src": string;
+        /**
+          * @default 'light'
+         */
+        "theme"?: 'light' | 'dark' | 'sepia';
     }
     interface DocWorkspace {
     }
