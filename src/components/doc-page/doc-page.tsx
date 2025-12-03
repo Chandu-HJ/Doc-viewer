@@ -77,10 +77,20 @@ export class DocPage {
     this.redrawCommentsFromProps();
   }
 
+  @Watch('activeTool')
+  activeToolChanged() {
+    this.updatePointerEvents();
+  }
+
+  @Watch('readOnly')
+  readOnlyChanged() {
+    this.updatePointerEvents();
+  }
+
   // ========== LAZY RENDERING ==========
   private async ensureRendered() {
-    if (!this.visible) return;       // not in viewport yet
-    if (this.hasRendered) return;    // already rendered once
+    if (!this.visible) return; // not in viewport yet
+    if (this.hasRendered) return; // already rendered once
 
     this.hasRendered = true;
 
@@ -169,6 +179,7 @@ export class DocPage {
     this.redrawHighlightsFromProps();
     this.redrawCommentsFromProps();
 
+    // text highlight uses DOM selection
     textEl.addEventListener('mouseup', () => this.handleTextMouseUp());
   }
 
@@ -182,54 +193,64 @@ export class DocPage {
     Object.assign(layer.style, {
       position: 'absolute',
       inset: '0',
-      zIndex: '999',        // ensure it is on top of canvas/text
+      zIndex: '999', // ensure it is on top of canvas/text
       pointerEvents: 'auto',
     });
 
     this.annotationLayerEl = layer;
     pageDiv.appendChild(layer);
 
+    // Attach mouse handlers for all file types; logic inside onMouseDown handles special cases
     if (!this.readOnly) {
       layer.addEventListener('mousedown', (e) => this.onMouseDown(e));
       layer.addEventListener('mousemove', (e) => this.onMouseMove(e));
       layer.addEventListener('mouseup', () => this.onMouseUp());
-    } else {
-      if (this.activeTool === 'select') {
-  layer.style.pointerEvents = 'none';
-
-  // but allow icons to be clicked
-  layer.querySelectorAll('.comment-icon, .note-icon').forEach((el) => {
-    (el as HTMLElement).style.pointerEvents = 'auto';
-  });
-} else {
-  layer.style.pointerEvents = 'auto';
-}
-
-
     }
-  }
-@Watch('activeTool')
-@Watch('activeTool')
-activeToolChanged() {
-  if (!this.annotationLayerEl) return;
 
-  // SELECT MODE → allow clicking icons, allow text select, block drawing
-  if (this.activeTool === 'select') {
-    // fully pass-through except icons
-    this.annotationLayerEl.style.pointerEvents = 'none';
-
-    // restore icon clickability
-    this.annotationLayerEl.querySelectorAll('.comment-icon, .note-icon').forEach((el) => {
-      (el as HTMLElement).style.pointerEvents = 'auto';
-    });
-
-    return;
+    this.updatePointerEvents();
   }
 
-  // OTHER TOOLS (highlight/comment/note)
-  this.annotationLayerEl.style.pointerEvents = 'auto';
-}
+  // Centralized control for pointer-events depending on tool + file type
+  private updatePointerEvents() {
+    if (!this.annotationLayerEl) return;
 
+    const layer = this.annotationLayerEl;
+
+    // READ ONLY → pass-through except icons
+    if (this.readOnly) {
+      layer.style.pointerEvents = 'none';
+      layer
+        .querySelectorAll('.comment-icon, .note-icon')
+        .forEach((el) => ((el as HTMLElement).style.pointerEvents = 'auto'));
+      return;
+    }
+
+    if (this.fileType === 'text') {
+      // TEXT:
+      // - highlight/select → let text receive events (selection)
+      // - comment/note → layer must receive click for placement
+      if (this.activeTool === 'highlight' || this.activeTool === 'select') {
+        layer.style.pointerEvents = 'none';
+      } else {
+        // comment / note
+        layer.style.pointerEvents = 'auto';
+      }
+    } else {
+      // PDF / IMAGE:
+      // - select → pass-through (no new drawings), icons clickable
+      // - others → annotation layer active
+      if (this.activeTool === 'select') {
+        layer.style.pointerEvents = 'none';
+      } else {
+        layer.style.pointerEvents = 'auto';
+      }
+    }
+
+    // Icons should always be clickable
+    layer
+      .querySelectorAll('.comment-icon, .note-icon')
+      .forEach((el) => ((el as HTMLElement).style.pointerEvents = 'auto'));
+  }
 
   // ========== MOUSE HANDLERS ==========
   private onMouseDown(e: MouseEvent) {
@@ -238,7 +259,7 @@ activeToolChanged() {
     const rect = this.annotationLayerEl.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
 
-    // COMMENT / NOTE
+    // COMMENT / NOTE (all file types)
     if (this.activeTool === 'comment' || this.activeTool === 'note') {
       const xNorm = (e.clientX - rect.left) / rect.width;
       const yNorm = (e.clientY - rect.top) / rect.height;
@@ -252,7 +273,7 @@ activeToolChanged() {
       return;
     }
 
-    // HIGHLIGHT (pdf/image only)
+    // HIGHLIGHT for pdf/image (rectangle drawing)
     if (this.activeTool !== 'highlight' || this.fileType === 'text') return;
 
     this.isDrawing = true;
@@ -308,55 +329,41 @@ activeToolChanged() {
 
   // ========== TEXT HIGHLIGHT ==========
   private handleTextMouseUp() {
-  if (this.readOnly) return;
-  if (this.fileType !== 'text') return;
-  if (this.activeTool !== 'highlight') return;
-  if (!this.annotationLayerEl) return;
+    if (this.readOnly) return;
+    if (this.fileType !== 'text') return;
+    if (this.activeTool !== 'highlight') return;
+    if (!this.annotationLayerEl) return;
 
-  // allow text selection
-  this.annotationLayerEl.style.pointerEvents = 'none';
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) return;
 
-  const sel = window.getSelection();
-  if (!sel || sel.isCollapsed) {
-    this.annotationLayerEl.style.pointerEvents = 'auto';
-    return;
+    const range = sel.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    sel.removeAllRanges();
+
+    const layerRect = this.annotationLayerEl.getBoundingClientRect();
+    if (!layerRect.width || !layerRect.height || !rect.width || !rect.height) return;
+
+    const x = rect.left - layerRect.left;
+    const y = rect.top - layerRect.top;
+
+    const normalized: NormalizedRect = {
+      x: x / layerRect.width,
+      y: y / layerRect.height,
+      width: rect.width / layerRect.width,
+      height: rect.height / layerRect.height,
+    };
+
+    const el = document.createElement('div');
+    el.className = 'annotationRect';
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.width = `${rect.width}px`;
+    el.style.height = `${rect.height}px`;
+
+    this.annotationLayerEl.appendChild(el);
+    this.annotationCreated.emit({ page: this.page, rect: normalized });
   }
-
-  const range = sel.getRangeAt(0);
-  const rect = range.getBoundingClientRect();
-  sel.removeAllRanges();
-
-  const layerRect = this.annotationLayerEl.getBoundingClientRect();
-  if (!layerRect.width || !layerRect.height || !rect.width || !rect.height) {
-    this.annotationLayerEl.style.pointerEvents = 'auto';
-    return;
-  }
-
-  const x = rect.left - layerRect.left;
-  const y = rect.top - layerRect.top;
-
-  const normalized = {
-    x: x / layerRect.width,
-    y: y / layerRect.height,
-    width: rect.width / layerRect.width,
-    height: rect.height / layerRect.height,
-  };
-
-  const el = document.createElement('div');
-  el.className = 'annotationRect';
-  el.style.left = `${x}px`;
-  el.style.top = `${y}px`;
-  el.style.width = `${rect.width}px`;
-  el.style.height = `${rect.height}px`;
-
-  this.annotationLayerEl.appendChild(el);
-
-  // restore clickability
-  this.annotationLayerEl.style.pointerEvents = 'auto';
-
-  this.annotationCreated.emit({ page: this.page, rect: normalized });
-}
-
 
   // ========== REDRAW HIGHLIGHTS ==========
   private redrawHighlightsFromProps() {
@@ -376,6 +383,9 @@ activeToolChanged() {
       el.style.height = `${a.height * layerRect.height}px`;
       this.annotationLayerEl!.appendChild(el);
     });
+
+    // Ensure icons remain clickable after redraw
+    this.updatePointerEvents();
   }
 
   // ========== REDRAW COMMENTS + NOTES (WITH NOTE BUBBLE) ==========
@@ -443,6 +453,9 @@ activeToolChanged() {
       this.annotationLayerEl!.appendChild(bubble);
       this.annotationLayerEl!.appendChild(icon);
     });
+
+    // Make sure icons stay clickable
+    this.updatePointerEvents();
   }
 
   render() {
