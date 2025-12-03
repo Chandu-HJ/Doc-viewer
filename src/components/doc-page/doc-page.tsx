@@ -336,7 +336,7 @@ export class DocPage {
 
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) return;
-    const range = sel.getRangeAt(0);
+    const range = sel.getRangeAt(0);git 
     const r = range.getBoundingClientRect();
 
     sel.removeAllRanges();

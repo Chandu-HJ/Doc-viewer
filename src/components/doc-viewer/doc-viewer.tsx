@@ -38,6 +38,11 @@ export class DocViewer {
   @State() sidebarDraftText = '';
   @State() sidebarDraftTag = 'None';
 
+// virtual scrolling
+@State() currentPageIndex: number = 1;
+@State() renderPages: number[] = [1];
+
+
   private fileInputEl?: HTMLInputElement;
 
   private history = new HistoryManager<{
@@ -88,6 +93,8 @@ export class DocViewer {
       annotations: this.annotations,
       comments: this.comments,
     });
+
+    
   }
 
   // --------------------
@@ -417,9 +424,9 @@ export class DocViewer {
             <div class="spacer"></div>
 
             {/* JSON */}
-            <button onClick={this.exportJson}>⬇ Export</button>
+            <button onClick={this.exportJson}>⬆ Export</button>
             <button disabled={readOnly} onClick={() => this.fileInputEl?.click()}>
-              ⬆ Import
+              ⬇ Import
             </button>
             <input
               type="file"
@@ -427,6 +434,19 @@ export class DocViewer {
               ref={(el) => (this.fileInputEl = el as HTMLInputElement)}
               onChange={this.onImportFileChange}
             />
+
+            
+
+            {/* Mode */}
+            <label>Mode:</label>
+            <select onChange={(e: any) => (this.mode = e.target.value)}>
+              <option value="editor" selected={this.mode === 'editor'}>
+                Editor
+              </option>
+              <option value="viewer" selected={this.mode === 'viewer'}>
+                Viewer
+              </option>
+            </select>
 
             {/* Theme */}
             <label>Theme:</label>
@@ -439,17 +459,6 @@ export class DocViewer {
               </option>
               <option value="sepia" selected={this.theme === 'sepia'}>
                 Sepia
-              </option>
-            </select>
-
-            {/* Mode */}
-            <label>Mode:</label>
-            <select onChange={(e: any) => (this.mode = e.target.value)}>
-              <option value="editor" selected={this.mode === 'editor'}>
-                Editor
-              </option>
-              <option value="viewer" selected={this.mode === 'viewer'}>
-                Viewer
               </option>
             </select>
           </div>
