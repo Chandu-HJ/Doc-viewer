@@ -194,9 +194,42 @@ export class DocPage {
       layer.addEventListener('mousemove', (e) => this.onMouseMove(e));
       layer.addEventListener('mouseup', () => this.onMouseUp());
     } else {
-      layer.style.pointerEvents = 'none';
+      if (this.activeTool === 'select') {
+  layer.style.pointerEvents = 'none';
+
+  // but allow icons to be clicked
+  layer.querySelectorAll('.comment-icon, .note-icon').forEach((el) => {
+    (el as HTMLElement).style.pointerEvents = 'auto';
+  });
+} else {
+  layer.style.pointerEvents = 'auto';
+}
+
+
     }
   }
+@Watch('activeTool')
+@Watch('activeTool')
+activeToolChanged() {
+  if (!this.annotationLayerEl) return;
+
+  // SELECT MODE → allow clicking icons, allow text select, block drawing
+  if (this.activeTool === 'select') {
+    // fully pass-through except icons
+    this.annotationLayerEl.style.pointerEvents = 'none';
+
+    // restore icon clickability
+    this.annotationLayerEl.querySelectorAll('.comment-icon, .note-icon').forEach((el) => {
+      (el as HTMLElement).style.pointerEvents = 'auto';
+    });
+
+    return;
+  }
+
+  // OTHER TOOLS (highlight/comment/note)
+  this.annotationLayerEl.style.pointerEvents = 'auto';
+}
+
 
   // ========== MOUSE HANDLERS ==========
   private onMouseDown(e: MouseEvent) {
@@ -272,44 +305,58 @@ export class DocPage {
     this.currentRectEl.remove();
     this.currentRectEl = null;
   }
-  
+
   // ========== TEXT HIGHLIGHT ==========
   private handleTextMouseUp() {
-    if (this.readOnly) return;
-    if (this.fileType !== 'text') return;
-    if (this.activeTool !== 'highlight') return;
-    if (!this.annotationLayerEl) return;
+  if (this.readOnly) return;
+  if (this.fileType !== 'text') return;
+  if (this.activeTool !== 'highlight') return;
+  if (!this.annotationLayerEl) return;
 
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) return;
+  // allow text selection
+  this.annotationLayerEl.style.pointerEvents = 'none';
 
-    const range = sel.getRangeAt(0);
-    const rect = range.getBoundingClientRect();
-    sel.removeAllRanges();
-
-    const layerRect = this.annotationLayerEl.getBoundingClientRect();
-    if (!layerRect.width || !layerRect.height || !rect.width || !rect.height) return;
-
-    const x = rect.left - layerRect.left;
-    const y = rect.top - layerRect.top;
-
-    const normalized: NormalizedRect = {
-      x: x / layerRect.width,
-      y: y / layerRect.height,
-      width: rect.width / layerRect.width,
-      height: rect.height / layerRect.height,
-    };
-
-    const el = document.createElement('div');
-    el.className = 'annotationRect';
-    el.style.left = `${x}px`;
-    el.style.top = `${y}px`;
-    el.style.width = `${rect.width}px`;
-    el.style.height = `${rect.height}px`;
-
-    this.annotationLayerEl.appendChild(el);
-    this.annotationCreated.emit({ page: this.page, rect: normalized });
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed) {
+    this.annotationLayerEl.style.pointerEvents = 'auto';
+    return;
   }
+
+  const range = sel.getRangeAt(0);
+  const rect = range.getBoundingClientRect();
+  sel.removeAllRanges();
+
+  const layerRect = this.annotationLayerEl.getBoundingClientRect();
+  if (!layerRect.width || !layerRect.height || !rect.width || !rect.height) {
+    this.annotationLayerEl.style.pointerEvents = 'auto';
+    return;
+  }
+
+  const x = rect.left - layerRect.left;
+  const y = rect.top - layerRect.top;
+
+  const normalized = {
+    x: x / layerRect.width,
+    y: y / layerRect.height,
+    width: rect.width / layerRect.width,
+    height: rect.height / layerRect.height,
+  };
+
+  const el = document.createElement('div');
+  el.className = 'annotationRect';
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+  el.style.width = `${rect.width}px`;
+  el.style.height = `${rect.height}px`;
+
+  this.annotationLayerEl.appendChild(el);
+
+  // restore clickability
+  this.annotationLayerEl.style.pointerEvents = 'auto';
+
+  this.annotationCreated.emit({ page: this.page, rect: normalized });
+}
+
 
   // ========== REDRAW HIGHLIGHTS ==========
   private redrawHighlightsFromProps() {

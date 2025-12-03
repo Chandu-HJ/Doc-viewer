@@ -88,10 +88,7 @@
 }
 
 /* Ensure text layer does not block clicks */
-.pdfViewer .textLayer,
-.pdfViewerPage .textLayer {
-  pointer-events: none !important;
-}
+
 
 
 .virtual-page-wrapper {
@@ -175,4 +172,7 @@
 
 .note-bubble.right {
   transform: translate(32px, -10%);
+}
+.pdfViewerPage.select-mode .textLayer {
+  pointer-events: auto !important;
 }
