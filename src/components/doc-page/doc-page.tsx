@@ -1,4 +1,3 @@
-// src/components/doc-page/doc-page.tsx
 import {
   Component,
   h,
@@ -7,9 +6,7 @@ import {
   Event,
   EventEmitter,
   Watch,
-  State,
 } from '@stencil/core';
-
 import { NormalizedRect } from '../../types/annotations';
 import { PageComment, AnnotationKind } from '../../types/comments';
 
@@ -33,8 +30,11 @@ export class DocPage {
 
   @Prop() activeTool: 'select' | 'highlight' | 'comment' | 'note' = 'select';
 
-  // viewer or embedded → readOnly = true
-  @Prop({ mutable: true, reflect: true }) readOnly: boolean = false;
+  // readOnly = true → no drawing/adding annotations
+  @Prop() readOnly: boolean = false;
+
+  // virtual / lazy rendering flag
+  @Prop() visible: boolean = false;
 
   @Prop() annotations: NormalizedRect[] = [];
   @Prop() comments: PageComment[] = [];
@@ -51,26 +51,20 @@ export class DocPage {
   private viewerContainer!: HTMLDivElement;
   private annotationLayerEl: HTMLElement | null = null;
 
-  // drawing
   private isDrawing = false;
   private startX = 0;
   private startY = 0;
   private currentRectEl: HTMLElement | null = null;
 
-  // dragging/resizing
-  @State() draggingEl: HTMLElement | null = null;
-  @State() resizingEl: HTMLElement | null = null;
-  @State() dragOffsetX = 0;
-  @State() dragOffsetY = 0;
+  private hasRendered = false; // for lazy load
 
   async componentDidLoad() {
-    if (this.fileType === 'image') {
-      await this.renderImagePage();
-    } else if (this.fileType === 'text') {
-      await this.renderTextPage();
-    } else {
-      await this.renderPdfPage();
-    }
+    await this.ensureRendered();
+  }
+
+  @Watch('visible')
+  async visibleChanged() {
+    await this.ensureRendered();
   }
 
   @Watch('annotations')
@@ -83,17 +77,32 @@ export class DocPage {
     this.redrawCommentsFromProps();
   }
 
-  // ------------------------------------------------------
-  // RENDER PDF
-  // ------------------------------------------------------
+  // ========== LAZY RENDERING ==========
+  private async ensureRendered() {
+    if (!this.visible) return;       // not in viewport yet
+    if (this.hasRendered) return;    // already rendered once
+
+    this.hasRendered = true;
+
+    if (this.fileType === 'image') {
+      await this.renderImagePage();
+    } else if (this.fileType === 'text') {
+      await this.renderTextPage();
+    } else {
+      await this.renderPdfPage();
+    }
+  }
+
+  // ========== RENDER TYPES ==========
   private async renderPdfPage() {
     const loadingTask = pdfjsLib.getDocument(this.src);
     const pdf = await loadingTask.promise;
-    const pdfPage = await pdf.getPage(this.page);
 
-    const viewport = pdfPage.getViewport({ scale: this.scale });
+    const page = await pdf.getPage(this.page);
+    const viewport = page.getViewport({ scale: this.scale });
 
     const eventBus = new pdfjsViewer.EventBus();
+
     const pageView = new pdfjsViewer.PDFPageView({
       container: this.viewerContainer,
       id: this.page,
@@ -103,29 +112,24 @@ export class DocPage {
       textLayerMode: 2,
     });
 
-    pageView.setPdfPage(pdfPage);
+    pageView.setPdfPage(page);
     await pageView.draw();
 
-    // PDF.js creates layers asynchronously → wait
-    setTimeout(() => {
-      const pageDiv = pageView.div as HTMLElement;
+    const pageDiv = pageView.div as HTMLElement;
 
-      // Fix text layer so it doesn't block pointer events
-      const textLayer = pageDiv.querySelector('.textLayer') as HTMLElement;
-      if (textLayer) {
-        textLayer.style.pointerEvents = 'none';
-        textLayer.style.zIndex = '5';
-      }
-
+    // ✅ Make sure layout is fully done before creating annotation layer
+    const setup = () => {
       this.setupAnnotationLayer(pageDiv);
       this.redrawHighlightsFromProps();
       this.redrawCommentsFromProps();
-    }, 30);
+    };
+
+    // double RAF → next layout + next paint
+    requestAnimationFrame(() => {
+      requestAnimationFrame(setup);
+    });
   }
 
-  // ------------------------------------------------------
-  // IMAGE
-  // ------------------------------------------------------
   private async renderImagePage() {
     const pageDiv = document.createElement('div');
     pageDiv.classList.add('page');
@@ -134,8 +138,8 @@ export class DocPage {
 
     const img = document.createElement('img');
     img.src = this.src;
-    img.style.maxWidth = `${800 * this.scale}px`;
     img.style.display = 'block';
+    img.style.maxWidth = `${800 * this.scale}px`;
 
     pageDiv.appendChild(img);
 
@@ -146,23 +150,19 @@ export class DocPage {
     };
   }
 
-  // ------------------------------------------------------
-  // TEXT FILE
-  // ------------------------------------------------------
   private async renderTextPage() {
     const pageDiv = document.createElement('div');
     pageDiv.classList.add('page');
     pageDiv.style.position = 'relative';
-
     this.viewerContainer.appendChild(pageDiv);
 
     const textEl = document.createElement('pre');
+    textEl.classList.add('text-content');
     textEl.style.fontSize = `${16 * this.scale}px`;
     textEl.style.whiteSpace = 'pre-wrap';
 
     const text = await fetch(this.src).then((r) => r.text());
     textEl.textContent = text;
-
     pageDiv.appendChild(textEl);
 
     this.setupAnnotationLayer(pageDiv);
@@ -172,9 +172,7 @@ export class DocPage {
     textEl.addEventListener('mouseup', () => this.handleTextMouseUp());
   }
 
-  // ------------------------------------------------------
-  // ANNOTATION LAYER
-  // ------------------------------------------------------
+  // ========== ANNOTATION LAYER ==========
   private setupAnnotationLayer(pageDiv: HTMLElement) {
     const old = pageDiv.querySelector('.annotationLayer');
     if (old) old.remove();
@@ -184,28 +182,31 @@ export class DocPage {
     Object.assign(layer.style, {
       position: 'absolute',
       inset: '0',
-      zIndex: '50',
+      zIndex: '999',        // ensure it is on top of canvas/text
       pointerEvents: 'auto',
     });
 
     this.annotationLayerEl = layer;
-
-    layer.addEventListener('mousedown', (e) => this.onMouseDown(e));
-    layer.addEventListener('mousemove', (e) => this.onMouseMove(e));
-    layer.addEventListener('mouseup', () => this.onMouseUp());
-
     pageDiv.appendChild(layer);
+
+    if (!this.readOnly) {
+      layer.addEventListener('mousedown', (e) => this.onMouseDown(e));
+      layer.addEventListener('mousemove', (e) => this.onMouseMove(e));
+      layer.addEventListener('mouseup', () => this.onMouseUp());
+    } else {
+      layer.style.pointerEvents = 'none';
+    }
   }
 
-  // ------------------------------------------------------
-  // DRAWING (highlight rectangles)
-  // ------------------------------------------------------
+  // ========== MOUSE HANDLERS ==========
   private onMouseDown(e: MouseEvent) {
     if (!this.annotationLayerEl || this.readOnly) return;
 
-    // place comment/note
+    const rect = this.annotationLayerEl.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    // COMMENT / NOTE
     if (this.activeTool === 'comment' || this.activeTool === 'note') {
-      const rect = this.annotationLayerEl.getBoundingClientRect();
       const xNorm = (e.clientX - rect.left) / rect.width;
       const yNorm = (e.clientY - rect.top) / rect.height;
 
@@ -213,80 +214,33 @@ export class DocPage {
         page: this.page,
         x: xNorm,
         y: yNorm,
-        kind: this.activeTool,
+        kind: this.activeTool === 'comment' ? 'comment' : 'note',
       });
       return;
     }
 
-    // dragging/resizing?
-    const target = e.target as HTMLElement;
-    if (target.classList.contains('annotationRect')) {
-      this.draggingEl = target;
-      const r = target.getBoundingClientRect();
-      this.dragOffsetX = e.clientX - r.left;
-      this.dragOffsetY = e.clientY - r.top;
-      return;
-    }
-
-    if (target.classList.contains('resize-handle')) {
-      this.resizingEl = target.parentElement as HTMLElement;
-      return;
-    }
-
-    // drawing rectangle
-    if (this.activeTool !== 'highlight') return;
+    // HIGHLIGHT (pdf/image only)
+    if (this.activeTool !== 'highlight' || this.fileType === 'text') return;
 
     this.isDrawing = true;
-
-    const rect = this.annotationLayerEl.getBoundingClientRect();
     this.startX = e.clientX - rect.left;
     this.startY = e.clientY - rect.top;
 
-    const el = document.createElement('div');
-    el.className = 'annotationRect';
-    el.style.left = `${this.startX}px`;
-    el.style.top = `${this.startY}px`;
+    this.currentRectEl = document.createElement('div');
+    this.currentRectEl.className = 'annotationRect';
+    this.currentRectEl.style.left = `${this.startX}px`;
+    this.currentRectEl.style.top = `${this.startY}px`;
 
-    const resizeHandle = document.createElement('div');
-    resizeHandle.className = 'resize-handle';
-    el.appendChild(resizeHandle);
-
-    this.currentRectEl = el;
-    this.annotationLayerEl.appendChild(el);
+    this.annotationLayerEl.appendChild(this.currentRectEl);
   }
 
   private onMouseMove(e: MouseEvent) {
-    if (this.readOnly || !this.annotationLayerEl) return;
-
-    // dragging
-    if (this.draggingEl) {
-      const rect = this.annotationLayerEl.getBoundingClientRect();
-      const x = e.clientX - rect.left - this.dragOffsetX;
-      const y = e.clientY - rect.top - this.dragOffsetY;
-
-      this.draggingEl.style.left = `${x}px`;
-      this.draggingEl.style.top = `${y}px`;
-      return;
-    }
-
-    // resizing
-    if (this.resizingEl) {
-      const rect = this.annotationLayerEl.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-
-      const left = parseFloat(this.resizingEl.style.left);
-      const top = parseFloat(this.resizingEl.style.top);
-
-      this.resizingEl.style.width = `${x - left}px`;
-      this.resizingEl.style.height = `${y - top}px`;
-      return;
-    }
-
-    // drawing
-    if (!this.isDrawing || !this.currentRectEl) return;
+    if (this.readOnly) return;
+    if (!this.isDrawing || !this.currentRectEl || !this.annotationLayerEl) return;
 
     const rect = this.annotationLayerEl.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
@@ -295,119 +249,151 @@ export class DocPage {
   }
 
   private onMouseUp() {
-    if (this.draggingEl) {
-      this.draggingEl = null;
-      return;
-    }
-    if (this.resizingEl) {
-      this.resizingEl = null;
-      return;
-    }
-    if (!this.isDrawing || !this.annotationLayerEl || !this.currentRectEl)
-      return;
+    if (this.readOnly) return;
+    if (!this.isDrawing || !this.annotationLayerEl || !this.currentRectEl) return;
 
     this.isDrawing = false;
 
-    const rect = this.annotationLayerEl.getBoundingClientRect();
-    const width = parseFloat(this.currentRectEl.style.width);
-    const height = parseFloat(this.currentRectEl.style.height);
+    const layerRect = this.annotationLayerEl.getBoundingClientRect();
+    const width = parseFloat(this.currentRectEl.style.width || '0');
+    const height = parseFloat(this.currentRectEl.style.height || '0');
 
-    if (width > 3 && height > 3) {
+    if (width > 3 && height > 3 && layerRect.width && layerRect.height) {
       const normalized: NormalizedRect = {
-        x: parseFloat(this.currentRectEl.style.left) / rect.width,
-        y: parseFloat(this.currentRectEl.style.top) / rect.height,
-        width: width / rect.width,
-        height: height / rect.height,
+        x: parseFloat(this.currentRectEl.style.left || '0') / layerRect.width,
+        y: parseFloat(this.currentRectEl.style.top || '0') / layerRect.height,
+        width: width / layerRect.width,
+        height: height / layerRect.height,
       };
+
       this.annotationCreated.emit({ page: this.page, rect: normalized });
     }
 
-    // leave element for rendering logic
+    this.currentRectEl.remove();
     this.currentRectEl = null;
   }
-
-  // ------------------------------------------------------
-  // TEXT HIGHLIGHT
-  // ------------------------------------------------------
+  
+  // ========== TEXT HIGHLIGHT ==========
   private handleTextMouseUp() {
     if (this.readOnly) return;
     if (this.fileType !== 'text') return;
     if (this.activeTool !== 'highlight') return;
+    if (!this.annotationLayerEl) return;
 
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) return;
-    const range = sel.getRangeAt(0);
-    const r = range.getBoundingClientRect();
 
+    const range = sel.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
     sel.removeAllRanges();
 
-    if (!this.annotationLayerEl) return;
     const layerRect = this.annotationLayerEl.getBoundingClientRect();
+    if (!layerRect.width || !layerRect.height || !rect.width || !rect.height) return;
 
-    const x = r.left - layerRect.left;
-    const y = r.top - layerRect.top;
+    const x = rect.left - layerRect.left;
+    const y = rect.top - layerRect.top;
 
     const normalized: NormalizedRect = {
       x: x / layerRect.width,
       y: y / layerRect.height,
-      width: r.width / layerRect.width,
-      height: r.height / layerRect.height,
+      width: rect.width / layerRect.width,
+      height: rect.height / layerRect.height,
     };
 
+    const el = document.createElement('div');
+    el.className = 'annotationRect';
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.width = `${rect.width}px`;
+    el.style.height = `${rect.height}px`;
+
+    this.annotationLayerEl.appendChild(el);
     this.annotationCreated.emit({ page: this.page, rect: normalized });
   }
 
-  // ------------------------------------------------------
-  // REDRAW FROM PROPS
-  // ------------------------------------------------------
+  // ========== REDRAW HIGHLIGHTS ==========
   private redrawHighlightsFromProps() {
     if (!this.annotationLayerEl) return;
 
-    this.annotationLayerEl.querySelectorAll('.annotationRect').forEach((el) =>
-      el.remove()
-    );
+    this.annotationLayerEl.querySelectorAll('.annotationRect').forEach((el) => el.remove());
 
-    const rect = this.annotationLayerEl.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
+    const layerRect = this.annotationLayerEl.getBoundingClientRect();
+    if (!layerRect.width || !layerRect.height) return;
 
     this.annotations.forEach((a) => {
       const el = document.createElement('div');
       el.className = 'annotationRect';
-      el.style.left = `${a.x * rect.width}px`;
-      el.style.top = `${a.y * rect.height}px`;
-      el.style.width = `${a.width * rect.width}px`;
-      el.style.height = `${a.height * rect.height}px`;
-
-      const handle = document.createElement('div');
-      handle.className = 'resize-handle';
-      el.appendChild(handle);
-
+      el.style.left = `${a.x * layerRect.width}px`;
+      el.style.top = `${a.y * layerRect.height}px`;
+      el.style.width = `${a.width * layerRect.width}px`;
+      el.style.height = `${a.height * layerRect.height}px`;
       this.annotationLayerEl!.appendChild(el);
     });
   }
 
+  // ========== REDRAW COMMENTS + NOTES (WITH NOTE BUBBLE) ==========
   private redrawCommentsFromProps() {
     if (!this.annotationLayerEl) return;
 
+    // Remove old icons + bubbles
     this.annotationLayerEl
-      .querySelectorAll('.comment-icon, .note-icon')
+      .querySelectorAll('.comment-icon, .note-icon, .note-bubble')
       .forEach((el) => el.remove());
 
-    const rect = this.annotationLayerEl.getBoundingClientRect();
+    const layerRect = this.annotationLayerEl.getBoundingClientRect();
+    if (!layerRect.width || !layerRect.height) return;
 
     this.comments.forEach((c) => {
+      const isNote = c.kind === 'note';
+      const pxX = c.x * layerRect.width;
+      const pxY = c.y * layerRect.height;
+
+      // Create icon
       const icon = document.createElement('div');
-      icon.className = c.kind === 'note' ? 'note-icon' : 'comment-icon';
-      icon.textContent = c.kind === 'note' ? '📝' : '💬';
+      icon.className = isNote ? 'note-icon' : 'comment-icon';
+      icon.textContent = isNote ? '📝' : '💬';
+      icon.style.left = `${pxX}px`;
+      icon.style.top = `${pxY}px`;
 
-      icon.style.left = `${c.x * rect.width}px`;
-      icon.style.top = `${c.y * rect.height}px`;
+      // --- COMMENTS (💬) → icon only, click = open sidebar
+      if (!isNote) {
+        icon.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          this.commentIconClicked.emit({ page: this.page, commentId: c.id });
+        });
+        this.annotationLayerEl!.appendChild(icon);
+        return;
+      }
 
+      // --- NOTES (📝) → icon + popup text bubble
+      const bubble = document.createElement('div');
+      bubble.className = 'note-bubble';
+      bubble.textContent = c.text && c.text.trim() !== '' ? c.text : '(empty note)';
+
+      // Place near icon
+      bubble.style.left = `${pxX}px`;
+      bubble.style.top = `${pxY}px`;
+
+      // Decide left/right based on available space
+      const placeRight = pxX < layerRect.width * 0.6;
+      bubble.classList.add(placeRight ? 'right' : 'left');
+
+      // Hover → show
+      icon.addEventListener('mouseenter', () => {
+        bubble.classList.add('visible');
+      });
+      icon.addEventListener('mouseleave', () => {
+        bubble.classList.remove('visible');
+      });
+
+      // Click → toggle + open sidebar
       icon.addEventListener('click', (ev) => {
         ev.stopPropagation();
+        bubble.classList.toggle('visible');
         this.commentIconClicked.emit({ page: this.page, commentId: c.id });
       });
 
+      this.annotationLayerEl!.appendChild(bubble);
       this.annotationLayerEl!.appendChild(icon);
     });
   }

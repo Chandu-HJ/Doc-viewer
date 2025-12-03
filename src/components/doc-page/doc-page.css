@@ -92,3 +92,87 @@
 .pdfViewerPage .textLayer {
   pointer-events: none !important;
 }
+
+
+.virtual-page-wrapper {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+/* ================================
+   NOTE TEXT BUBBLE (PREVIEW)
+================================ */
+
+.note-bubble {
+  position: absolute;
+  max-width: 240px;
+  padding: 10px 14px;
+  font-size: 13px;
+  border-radius: 12px;
+
+  background: rgba(255, 250, 240, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+
+  box-shadow:
+    0 4px 18px rgba(0, 0, 0, 0.28),
+    0 0 12px rgba(255, 180, 120, 0.6);
+
+  color: #4b2b1f;
+  z-index: 50;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.note-bubble.visible {
+  opacity: 1;
+  transform: translateY(0px);
+}
+
+/* Positioning helpers */
+.note-bubble.left {
+  transform: translate(-110%, -10%);
+}
+
+.note-bubble.right {
+  transform: translate(32px, -10%);
+}
+.note-bubble {
+  position: absolute;
+  max-width: 240px;
+  padding: 10px 14px;
+  font-size: 13px;
+  border-radius: 12px;
+
+  background: rgba(255, 250, 240, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+
+  box-shadow:
+    0 4px 18px rgba(0, 0, 0, 0.28),
+    0 0 12px rgba(255, 180, 120, 0.6);
+
+  color: #4b2b1f;
+  z-index: 50;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.note-bubble.visible {
+  opacity: 1;
+  transform: translateY(0px);
+}
+
+.note-bubble.left {
+  transform: translate(-110%, -10%);
+}
+
+.note-bubble.right {
+  transform: translate(32px, -10%);
+}

@@ -19,10 +19,8 @@ export class DocViewer {
   @Prop() scale: number = 1.2;
   @Prop() fileType: FileType = 'pdf';
 
-  // Embedded mode = viewer only + no toolbar
   @Prop({ mutable: true, reflect: true }) embedded: boolean = false;
 
-  // Theme and mode
   @Prop({ mutable: true, reflect: true }) theme: 'light' | 'dark' | 'sepia' = 'light';
   @Prop({ mutable: true, reflect: true }) mode: 'viewer' | 'editor' = 'editor';
 
@@ -38,23 +36,21 @@ export class DocViewer {
   @State() sidebarDraftText = '';
   @State() sidebarDraftTag = 'None';
 
-// virtual scrolling
-@State() currentPageIndex: number = 1;
-@State() renderPages: number[] = [1];
-
-
-  private fileInputEl?: HTMLInputElement;
+  // virtual / lazy: which pages are visible
+  @State() visiblePages: { [page: number]: boolean } = { 1: true };
 
   private history = new HistoryManager<{
     annotations: Record<number, NormalizedRect[]>;
     comments: Record<number, PageComment[]>;
   }>();
 
-  // --------------------
-  // STORAGE KEYS
-  // --------------------
+  private fileInputEl?: HTMLInputElement;
+  private intersectionObserver?: IntersectionObserver;
+
+  // ---------- STORAGE ----------
   private storageKey(kind: 'annotations' | 'comments'): string {
-    const safe = (this.src || 'file').replace(/[^a-z0-9]/gi, '_');
+    const base = this.src || 'default';
+    const safe = base.replace(/[^a-z0-9]/gi, '_');
     return `dv_${kind}_${safe}`;
   }
 
@@ -67,20 +63,17 @@ export class DocViewer {
   }
 
   async componentDidLoad() {
-    // check for ?embedded=true
     const url = new URL(window.location.href);
     if (url.searchParams.get('embedded') === 'true') this.embedded = true;
 
-    // load storage
-    const a = localStorage.getItem(this.storageKey('annotations'));
-    if (a) this.annotations = JSON.parse(a);
-    const c = localStorage.getItem(this.storageKey('comments'));
-    if (c) this.comments = JSON.parse(c);
+    const ann = localStorage.getItem(this.storageKey('annotations'));
+    if (ann) this.annotations = JSON.parse(ann);
 
-    // auto detect file type
+    const cm = localStorage.getItem(this.storageKey('comments'));
+    if (cm) this.comments = JSON.parse(cm);
+
     if (!this.fileType) this.fileType = this.detectFileType(this.src);
 
-    // load page count
     if (this.fileType === 'pdf') {
       const task = pdfjsLib.getDocument(this.src);
       const pdf = await task.promise;
@@ -94,12 +87,47 @@ export class DocViewer {
       comments: this.comments,
     });
 
-    
+    this.setupIntersectionObserver();
   }
 
-  // --------------------
-  // HISTORY
-  // --------------------
+  private setupIntersectionObserver() {
+    if (typeof IntersectionObserver === 'undefined') return;
+
+    this.intersectionObserver = new IntersectionObserver(
+      (entries) => {
+        const updated = { ...this.visiblePages };
+        let changed = false;
+
+        for (const entry of entries) {
+          const el = entry.target as HTMLElement;
+          const pageStr = el.getAttribute('data-page');
+          if (!pageStr) continue;
+          const page = parseInt(pageStr, 10);
+          if (!page) continue;
+
+          if (entry.isIntersecting && !updated[page]) {
+            updated[page] = true;
+            changed = true;
+          }
+        }
+
+        if (changed) {
+          this.visiblePages = updated;
+        }
+      },
+      {
+        threshold: 0.2,
+      }
+    );
+  }
+
+  private observePageContainer = (el: HTMLElement | null, page: number) => {
+    if (!el || !this.intersectionObserver) return;
+    el.setAttribute('data-page', String(page));
+    this.intersectionObserver.observe(el);
+  };
+
+  // ===== HISTORY =====
   private pushHistory() {
     this.history.pushState({
       annotations: this.annotations,
@@ -113,39 +141,38 @@ export class DocViewer {
   }
 
   undo = () => {
-    const s = this.history.undo({
+    const state = this.history.undo({
       annotations: this.annotations,
       comments: this.comments,
     });
-    if (!s) return;
-    this.annotations = s.annotations;
-    this.comments = s.comments;
+    if (!state) return;
+    this.annotations = state.annotations;
+    this.comments = state.comments;
     this.persist();
   };
 
   redo = () => {
-    const s = this.history.redo({
+    const state = this.history.redo({
       annotations: this.annotations,
       comments: this.comments,
     });
-    if (!s) return;
-    this.annotations = s.annotations;
-    this.comments = s.comments;
+    if (!state) return;
+    this.annotations = state.annotations;
+    this.comments = state.comments;
     this.persist();
   };
 
-  // --------------------
-  // EVENT HANDLERS
-  // --------------------
+  // ===== EVENTS FROM PAGES =====
   handleAnnotationCreated = (ev: CustomEvent<{ page: number; rect: NormalizedRect }>) => {
-    this.pushHistory();
     const { page, rect } = ev.detail;
+    this.pushHistory();
 
-    const copy = { ...this.annotations };
-    const list = copy[page] || [];
-    copy[page] = [...list, rect];
+    const clone = { ...this.annotations };
+    const list = clone[page] ? [...clone[page]] : [];
+    list.push(rect);
+    clone[page] = list;
 
-    this.annotations = copy;
+    this.annotations = clone;
     this.persist();
   };
 
@@ -155,10 +182,12 @@ export class DocViewer {
     this.pushHistory();
 
     const { page, x, y, kind } = ev.detail;
+    const id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36);
 
-    const id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+    const updated = { ...this.comments };
+    const list = updated[page] ? [...updated[page]] : [];
 
-    const newComment: PageComment = {
+    list.push({
       id,
       kind,
       x,
@@ -166,13 +195,10 @@ export class DocViewer {
       text: '',
       tag: 'None',
       createdAt: new Date().toISOString(),
-    };
+    });
 
-    const copy = { ...this.comments };
-    const list = copy[page] || [];
-    copy[page] = [...list, newComment];
-
-    this.comments = copy;
+    updated[page] = list;
+    this.comments = updated;
     this.persist();
 
     this.sidebarOpen = true;
@@ -197,20 +223,37 @@ export class DocViewer {
   };
 
   private getComment(page: number, id: string) {
-    return (this.comments[page] || []).find((c) => c.id === id) || null;
+    const list = this.comments[page] || [];
+    return list.find((c) => c.id === id) || null;
   }
 
-  // --------------------
-  // SIDEBAR SAVE / DELETE
-  // --------------------
+  // ===== TOOLBAR =====
+  setTool(tool: 'select' | 'highlight' | 'comment' | 'note') {
+    this.activeTool = tool;
+  }
+
+  // ===== SIDEBAR HELPERS =====
+  private getSidebarComments() {
+    if (!this.sidebarPage) return [];
+    return this.comments[this.sidebarPage] || [];
+  }
+
+  private selectSidebarComment(id: string) {
+    this.sidebarSelectedId = id;
+    const c = this.sidebarPage ? this.getComment(this.sidebarPage, id) : null;
+    if (c) {
+      this.sidebarDraftText = c.text;
+      this.sidebarDraftTag = c.tag;
+    }
+  }
+
   saveSidebarAnnotation = () => {
-    if (!this.sidebarSelectedId || !this.sidebarPage) return;
+    if (!this.sidebarPage || !this.sidebarSelectedId) return;
 
     this.pushHistory();
 
     const page = this.sidebarPage;
     const list = [...(this.comments[page] || [])];
-
     const idx = list.findIndex((c) => c.id === this.sidebarSelectedId);
     if (idx < 0) return;
 
@@ -224,16 +267,25 @@ export class DocViewer {
     this.persist();
   };
 
+  private async mockAITag(text: string): Promise<string> {
+    const t = text.toLowerCase();
+    if (!t.trim()) return 'None';
+    if (t.includes('?')) return 'Question';
+    if (t.includes('important') || t.length > 80) return 'Important';
+    if (t.includes('todo') || t.includes('fix')) return 'Todo';
+    if (t.includes('idea')) return 'Idea';
+    return 'Idea';
+  }
+
   deleteSidebarAnnotation = () => {
-    if (!this.sidebarSelectedId || !this.sidebarPage) return;
+    if (!this.sidebarPage || !this.sidebarSelectedId) return;
 
     this.pushHistory();
+
     const page = this.sidebarPage;
+    const list = [...(this.comments[page] || [])];
 
-    const updated = (this.comments[page] || []).filter(
-      (c) => c.id !== this.sidebarSelectedId,
-    );
-
+    const updated = list.filter((c) => c.id !== this.sidebarSelectedId);
     this.comments = { ...this.comments, [page]: updated };
     this.persist();
 
@@ -242,19 +294,35 @@ export class DocViewer {
     this.sidebarDraftTag = 'None';
   };
 
-  // --------------------
-  // EXPORT / IMPORT
-  // --------------------
+  closeSidebar = () => {
+    this.sidebarOpen = false;
+    this.sidebarPage = null;
+    this.sidebarSelectedId = null;
+    this.sidebarDraftText = '';
+    this.sidebarDraftTag = 'None';
+  };
+
+  // ===== EXPORT / IMPORT (STATE) =====
   exportJson = () => {
-    const blob = new Blob(
-      [JSON.stringify({ annotations: this.annotations, comments: this.comments }, null, 2)],
-      { type: 'application/json' },
-    );
+    const data = {
+      version: 1,
+      src: this.src,
+      fileType: this.fileType,
+      theme: this.theme,
+      mode: this.mode,
+      activeTool: this.activeTool,
+      annotations: this.annotations,
+      comments: this.comments,
+    };
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: 'application/json',
+    });
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'annotations.json';
+    a.download = 'doc-viewer-state.json';
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -270,150 +338,170 @@ export class DocViewer {
         const data = JSON.parse(reader.result as string);
 
         this.pushHistory();
+
         this.annotations = data.annotations || {};
         this.comments = data.comments || {};
+
+        if (data.theme) this.theme = data.theme;
+        if (data.mode) this.mode = data.mode;
+        if (data.activeTool) this.activeTool = data.activeTool;
         this.persist();
-      } catch { }
+      } catch {
+        // ignore
+      } finally {
+        input.value = '';
+      }
     };
     reader.readAsText(file);
   };
 
-  // --------------------
-  // MOCK AI TAGGING
-  // --------------------
-  private async mockAITag(text: string) {
-    const t = text.toLowerCase();
-
-    if (!t.trim()) return 'None';
-    if (t.includes('important')) return 'Important';
-    if (t.includes('?')) return 'Question';
-    if (t.includes('todo') || t.includes('fix')) return 'Todo';
-    if (t.includes('idea')) return 'Idea';
-    return 'Idea';
-  }
-
-  // --------------------
-  // SIDEBAR RENDER
-  // --------------------
-  private getSidebarComments() {
-    if (!this.sidebarPage) return [];
-    return this.comments[this.sidebarPage] || [];
-  }
-
-  private renderSidebar() {
+  // ===== SIDEBAR UI =====
+  renderSidebar() {
     if (!this.sidebarOpen || !this.sidebarPage) return null;
 
-    const items = this.getSidebarComments();
-    const selected = this.sidebarSelectedId
-      ? items.find((c) => c.id === this.sidebarSelectedId)
-      : null;
-
+    const pageComments = this.getSidebarComments();
     const readOnly = this.mode === 'viewer' || this.embedded;
+
+    const selected =
+      this.sidebarSelectedId &&
+      pageComments.find((c) => c.id === this.sidebarSelectedId);
 
     return (
       <div class="comment-sidebar">
         <div class="sidebar-header">
-          <strong>Page {this.sidebarPage}</strong>
-          <button onClick={() => (this.sidebarOpen = false)}>✕</button>
+          <strong>Annotations – Page {this.sidebarPage}</strong>
+          <button class="close-btn" onClick={this.closeSidebar}>
+            ✕
+          </button>
         </div>
 
         <div class="comment-list">
-          {items.map((c) => (
-            <div
-              class={{
-                'comment-item': true,
-                selected: c.id === this.sidebarSelectedId,
-              }}
-              onClick={() => {
-                this.sidebarSelectedId = c.id;
-                this.sidebarDraftText = c.text;
-                this.sidebarDraftTag = c.tag;
-              }}
-            >
-              <div class="meta">
-                <b>{c.kind === 'note' ? 'Note' : 'Comment'}</b> •{' '}
-                {new Date(c.createdAt).toLocaleString()}
+          {pageComments.length === 0 ? (
+            <div class="empty">No comments or notes yet.</div>
+          ) : (
+            pageComments.map((c) => (
+              <div
+                class={{
+                  'comment-item': true,
+                  selected: c.id === this.sidebarSelectedId,
+                }}
+                onClick={() => this.selectSidebarComment(c.id)}
+              >
+                <div class="comment-meta">
+                  <span class="kind-pill">{c.kind === 'comment' ? 'Comment' : 'Note'}</span>
+                  <span class="meta-time"> • {new Date(c.createdAt).toLocaleString()}</span>
+                </div>
+                <div class="comment-meta tag-line">Tag: {c.tag}</div>
+                <div class="comment-text-preview">
+                  {c.text ? c.text.slice(0, 80) : '(no text yet)'}
+                </div>
               </div>
-              <div>Tag: {c.tag}</div>
-              <div>{c.text ? c.text.slice(0, 60) : '(empty)'}</div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
 
-        {selected ? (
-          <div class="comment-editor">
-            <textarea
-              disabled={readOnly}
-              value={this.sidebarDraftText}
-              onInput={(e: any) => (this.sidebarDraftText = e.target.value)}
-            ></textarea>
+        <div class="comment-editor">
+          {selected ? (
+            <>
+              <div class="editor-meta">
+                Editing {selected.kind} created {new Date(selected.createdAt).toLocaleString()}
+              </div>
 
-            <select
-              disabled={readOnly}
-              onChange={(e: any) => (this.sidebarDraftTag = e.target.value)}
-            >
-              {TAG_OPTIONS.map((t) => (
-                <option value={t} selected={t === this.sidebarDraftTag}>
-                  {t}
-                </option>
-              ))}
-            </select>
+              <label class="tag-label">
+                Tag:
+                <select
+                  disabled={readOnly}
+                  onChange={(e: any) => (this.sidebarDraftTag = e.target.value)}
+                >
+                  {TAG_OPTIONS.map((t) => (
+                    <option value={t} selected={this.sidebarDraftTag === t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-            <div class="editor-buttons">
-              <button disabled={readOnly} onClick={this.saveSidebarAnnotation}>
-                Save
-              </button>
-
-              <button
+              <textarea
+                value={this.sidebarDraftText}
                 disabled={readOnly}
-                onClick={async () => {
-                  this.sidebarDraftTag = await this.mockAITag(this.sidebarDraftText);
-                  this.saveSidebarAnnotation();
-                }}
-              >
-                🤖 Auto-Tag
-              </button>
+                onInput={(e: any) => (this.sidebarDraftText = e.target.value)}
+                placeholder="Type annotation details here..."
+              ></textarea>
 
-              <button disabled={readOnly} onClick={this.deleteSidebarAnnotation}>
-                🗑 Delete
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div class="empty-editor">Select an annotation</div>
-        )}
+              <div class="editor-buttons">
+                <button disabled={readOnly} onClick={this.saveSidebarAnnotation}>
+                  Save
+                </button>
+
+                <button
+                  class="ai-tag-btn"
+                  disabled={readOnly}
+                  onClick={async () => {
+                    this.sidebarDraftTag = await this.mockAITag(this.sidebarDraftText);
+                    this.saveSidebarAnnotation();
+                  }}
+                >
+                  🤖 Auto-Tag
+                </button>
+
+                <button
+                  class="delete-btn"
+                  disabled={readOnly}
+                  onClick={this.deleteSidebarAnnotation}
+                >
+                  🗑 Delete
+                </button>
+              </div>
+            </>
+          ) : (
+            <div class="editor-meta">Click a comment or note icon on the doc.</div>
+          )}
+        </div>
       </div>
     );
   }
 
-  // --------------------
-  // MAIN RENDER
-  // --------------------
+  // ===== MAIN RENDER =====
   render() {
     const readOnly = this.mode === 'viewer' || this.embedded;
+    const pages = Array.from({ length: this.numPages || 0 }, (_, i) => i + 1);
 
     return (
       <div class={`viewer-container theme-${this.theme}`}>
         {/* Toolbar hidden in embedded mode */}
         {!this.embedded && (
           <div class="toolbar">
-            {/* Tools */}
-            <button disabled={readOnly} onClick={() => (this.activeTool = 'select')}>
+            <button
+              disabled={readOnly}
+              class={this.activeTool === 'select' ? 'active' : ''}
+              onClick={() => this.setTool('select')}
+            >
               Select
             </button>
-            <button disabled={readOnly} onClick={() => (this.activeTool = 'highlight')}>
+            <button
+              disabled={readOnly}
+              class={this.activeTool === 'highlight' ? 'active' : ''}
+              onClick={() => this.setTool('highlight')}
+            >
               Highlight
             </button>
-            <button disabled={readOnly} onClick={() => (this.activeTool = 'comment')}>
+            <button
+              disabled={readOnly}
+              class={this.activeTool === 'comment' ? 'active' : ''}
+              onClick={() => this.setTool('comment')}
+            >
               Comment
             </button>
-            <button disabled={readOnly} onClick={() => (this.activeTool = 'note')}>
+            <button
+              disabled={readOnly}
+              class={this.activeTool === 'note' ? 'active' : ''}
+              onClick={() => this.setTool('note')}
+            >
               Note
             </button>
 
-            <div class="spacer"></div>
+            <div class="toolbar-spacer" />
 
-            {/* Undo/Redo */}
             <button disabled={readOnly} onClick={this.undo}>
               ⤺ Undo
             </button>
@@ -421,34 +509,20 @@ export class DocViewer {
               ⤼ Redo
             </button>
 
-            <div class="spacer"></div>
+            <div class="toolbar-spacer" />
 
-            {/* JSON */}
             <button onClick={this.exportJson}>⬆ Export</button>
             <button disabled={readOnly} onClick={() => this.fileInputEl?.click()}>
               ⬇ Import
             </button>
             <input
               type="file"
+              accept="application/json"
               style={{ display: 'none' }}
               ref={(el) => (this.fileInputEl = el as HTMLInputElement)}
               onChange={this.onImportFileChange}
             />
 
-            
-
-            {/* Mode */}
-            <label>Mode:</label>
-            <select onChange={(e: any) => (this.mode = e.target.value)}>
-              <option value="editor" selected={this.mode === 'editor'}>
-                Editor
-              </option>
-              <option value="viewer" selected={this.mode === 'viewer'}>
-                Viewer
-              </option>
-            </select>
-
-            {/* Theme */}
             <label>Theme:</label>
             <select onChange={(e: any) => (this.theme = e.target.value)}>
               <option value="light" selected={this.theme === 'light'}>
@@ -461,42 +535,54 @@ export class DocViewer {
                 Sepia
               </option>
             </select>
+
+            <label>Mode:</label>
+            <select onChange={(e: any) => (this.mode = e.target.value)}>
+              <option value="editor" selected={this.mode === 'editor'}>
+                Editor
+              </option>
+              <option value="viewer" selected={this.mode === 'viewer'}>
+                Viewer
+              </option>
+            </select>
           </div>
         )}
 
         <div class="viewer-main">
-
-          {/* PDF SCROLL AREA */}
           <div
             class={{
-              "pdf-panel": true,
-              "has-sidebar": this.sidebarOpen   // ⭐ shifts PDF when sidebar is open
+              'pdf-panel': true,
+              'has-sidebar': this.sidebarOpen,
             }}
           >
             <div class="pages-container">
-              {Array.from({ length: this.numPages }, (_, i) => (
-                <doc-page
-                  src={this.src}
-                  page={i + 1}
-                  key={i}
-                  scale={this.scale}
-                  fileType={this.fileType}
-                  readOnly={readOnly}
-                  activeTool={this.activeTool}
-                  annotations={this.annotations[i + 1] || []}
-                  comments={this.comments[i + 1] || []}
-                  onAnnotationCreated={this.handleAnnotationCreated}
-                  onCommentAddRequested={this.handleCommentAddRequested}
-                  onCommentIconClicked={this.handleCommentIconClicked}
-                ></doc-page>
+              {pages.map((pageNum) => (
+                <div
+                  class="virtual-page-wrapper"
+                  ref={(el) => this.observePageContainer(el as HTMLElement, pageNum)}
+                >
+                  <doc-page
+                    src={this.src}
+                    page={pageNum}
+                    key={pageNum}
+                    scale={this.scale}
+                    fileType={this.fileType}
+                    readOnly={readOnly}
+                    activeTool={this.activeTool}
+                    visible={!!this.visiblePages[pageNum]}  // ⭐ lazy render
+                    annotations={this.annotations[pageNum] || []}
+                    comments={this.comments[pageNum] || []}
+                    onAnnotationCreated={this.handleAnnotationCreated}
+                    onCommentAddRequested={this.handleCommentAddRequested}
+                    onCommentIconClicked={this.handleCommentIconClicked}
+                  ></doc-page>
+                </div>
               ))}
             </div>
           </div>
 
-          {/* SIDEBAR */}
           {!this.embedded && this.renderSidebar()}
         </div>
-
       </div>
     );
   }

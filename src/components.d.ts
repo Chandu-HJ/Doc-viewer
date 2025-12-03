@@ -39,6 +39,10 @@ export namespace Components {
          */
         "scale": number;
         "src": string;
+        /**
+          * @default false
+         */
+        "visible": boolean;
     }
     interface DocViewer {
         /**
@@ -170,6 +174,10 @@ declare namespace LocalJSX {
          */
         "scale"?: number;
         "src": string;
+        /**
+          * @default false
+         */
+        "visible"?: boolean;
     }
     interface DocViewer {
         /**
